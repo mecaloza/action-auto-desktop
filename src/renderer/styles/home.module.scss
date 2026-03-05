@@ -1,0 +1,271 @@
+@font-face {
+  font-family: 'DINCondensed';
+  src: local('DIN Condensed'), local('DINCondensed'), local('Din Condensed');
+  font-weight: normal;
+  font-style: normal;
+}
+
+.container {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+
+.containerFullscreen {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #000;
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  padding: 40px;
+  min-width: 400px;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  h2 {
+    text-align: center;
+    color: #fff;
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+}
+
+.logo {
+  width: 200px;
+  height: auto;
+  margin: 0 auto 20px;
+}
+
+.inputGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  label {
+    color: #aaa;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  input {
+    width: 100%;
+  }
+}
+
+.selectList {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.selectItem {
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+  color: #fff;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  &.selected {
+    background: rgba(230, 57, 70, 0.2);
+    border-color: #e63946;
+  }
+}
+
+button {
+  background: #e63946;
+  color: #fff;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+
+  &:hover {
+    background: #d62839;
+  }
+}
+
+// Countdown container - full screen like original
+.countdownContainer {
+  display: flex;
+  flex-flow: column;
+  height: 100vh;
+  width: 100vw;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  gap: 1vh;
+  background-color: #000;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+}
+
+.text_info {
+  text-align: center;
+  font-size: 30vh;
+  color: #808080;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+}
+
+.waiting_container {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.block_counter {
+  color: #5b5b5f;
+  font-size: 26vh;
+  min-width: 10vw;
+  text-align: center;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+}
+
+@media (min-width: 1024px) {
+  .block_counter {
+    min-width: 8vw;
+  }
+}
+
+.button_fullsize {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  left: 0;
+  z-index: 1;
+  background-color: transparent;
+  border: none;
+  width: 100%;
+  height: 50px;
+}
+
+.containerQR {
+  position: absolute;
+  padding: 0.3%;
+  top: 4%;
+  right: 4%;
+  width: 12vw;
+  background-color: white;
+  display: grid;
+  place-content: center;
+  z-index: 10000;
+}
+
+.container_booked {
+  width: 99vw;
+  height: 68vh;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+
+.countdown_video {
+  width: 100%;
+  height: 90%;
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+// Legacy styles for section 3 card view (keeping for reference)
+.countdown {
+  text-align: center;
+
+  h2 {
+    margin-bottom: 20px;
+  }
+
+  h3 {
+    color: #aaa;
+    font-size: 18px;
+    margin-bottom: 30px;
+  }
+}
+
+.timer {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  font-size: 72px;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  color: #e63946;
+  margin-bottom: 40px;
+
+  span {
+    background: rgba(230, 57, 70, 0.1);
+    padding: 10px 20px;
+    border-radius: 10px;
+  }
+}
+
+.logoutBtn {
+  background: transparent;
+  border: 2px solid #666;
+  color: #666;
+  margin-top: 40px;
+  position: absolute;
+  bottom: 20px;
+  width: auto;
+  padding: 10px 30px;
+
+  &:hover {
+    border-color: #e63946;
+    color: #e63946;
+    background: rgba(230, 57, 70, 0.1);
+  }
+}
+
+// Right-click context menu
+.contextMenu {
+  position: fixed;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 99999;
+  min-width: 120px;
+  padding: 4px 0;
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 0;
+
+  &:hover {
+    background: #e63946;
+  }
+}

@@ -1,0 +1,45 @@
+.container {
+  background-color: #1c1c1c;
+  border-radius: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  height: 34vh;
+
+  & > .name {
+    display: flex;
+    flex-direction: column;
+
+    & > p {
+      color: white;
+      text-align: center;
+      font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+      font-size: 180%;
+      margin: 0;
+    }
+  }
+
+  & > .img {
+    & > img {
+      height: 100px;
+      width: 100px;
+      object-fit: cover;
+      border-radius: 50%;
+    }
+  }
+}
+
+.number_spot {
+  color: white;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+  font-size: 290%;
+  margin: 0;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 2px solid white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}

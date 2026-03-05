@@ -1,0 +1,105 @@
+@font-face {
+  font-family: 'DINCondensed';
+  src: url('../assets/fonts/D-DINCondensed.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'DINCondensed';
+  src: url('../assets/fonts/D-DIN-Bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'DIN';
+  src: url('../assets/fonts/D-DINCondensed.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+  background-color: #000;
+  color: #c6c6c6;
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+
+  &:hover {
+    transform: scale(1.02);
+  }
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+input {
+  padding: 12px 16px;
+  font-size: 16px;
+  border: 2px solid #333;
+  border-radius: 8px;
+  background: #1a1a1a;
+  color: #fff;
+  transition: border-color 0.2s ease;
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+
+  &:focus {
+    outline: none;
+    border-color: #e63946;
+  }
+
+  &::placeholder {
+    color: #666;
+  }
+}
+
+select {
+  font-family: 'DINCondensed', 'Arial Narrow', sans-serif;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}

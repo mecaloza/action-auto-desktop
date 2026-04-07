@@ -183,7 +183,7 @@ const VideoContainer: React.FC<VideoContainerProps> = ({
       playsInline
       preload="auto"
       style={{ height, width }}
-      key={name}
+      key={`${name}-${video}`}
       className={name === 'nextExercise' ? styles.nextExercise : undefined}
       onClick={handleVideoClick}
       onError={handleError}

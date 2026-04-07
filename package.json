@@ -63,10 +63,17 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": ["x64"]
         }
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mecaloza",
+        "repo": "action-auto-desktop"
+      }
+    ]
   }
 }

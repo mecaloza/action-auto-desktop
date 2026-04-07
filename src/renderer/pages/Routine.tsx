@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/appStore';
 import VideoContainer from '../components/VideoContainer';
 import { RuntineIndicator } from '../components/RuntineIndicator';
 import { InfoClass } from '../components/InfoClass';
+import { QRContainer } from '../components/QRContainer';
 import styles from '../styles/routine.module.scss';
 import type { MusicTrack } from '../stores/appStore';
 
@@ -55,6 +56,7 @@ const Routine: React.FC = () => {
   const [musicTrigger, setMusicTrigger] = useState(0); // Used to force music useEffect to re-run
   const [jabCombinationNumbers, setJabCombinationNumbers] = useState<string[]>([]); // Jab punch combination numbers
   const [showNextBlockText, setShowNextBlockText] = useState(false); // "NEXT BLOCK" text overlay for Tonic/Solido REST
+  const [showQR, setShowQR] = useState(false); // QR code for attendance signing during WARM UP
 
   // Check if we should show domo video on mount (only if class just started)
   useEffect(() => {
@@ -220,6 +222,8 @@ const Routine: React.FC = () => {
     if (routineType === 'SOLID') return 'Solid';
     if (routineType === 'JAB') return 'Jab';
     if (routineType === 'STRIDE') return 'Stride';
+    if (routineType === 'BUUM') return 'Buum';
+    if (routineType === 'LEVEL') return 'Level';
     // Use lights_sequence for Tonic/Solid rooms (like original project)
     if (roomLower.includes('tonic') || roomLower.includes('solid')) {
       if (isSolidByLights) return 'Solid';
@@ -233,6 +237,8 @@ const Routine: React.FC = () => {
     if (roomLower.includes('solid')) return 'Solid';
     if (roomLower.includes('jab')) return 'Jab';
     if (roomLower.includes('stride')) return 'Stride';
+    if (roomLower.includes('buum')) return 'Buum';
+    if (roomLower.includes('level')) return 'Level';
     return 'Rutine';
   };
 
@@ -245,6 +251,8 @@ const Routine: React.FC = () => {
   const isTonic = routineType === 'TONIC' || (roomLower.includes('tonic') && isTonicByLights);
   const isSolido = routineType === 'SOLID' || (roomLower.includes('solid') && isSolidByLights) || isSolidByLights;
   const isTonicOrSolido = isTonic || isSolido || roomLower.includes('tonic') || roomLower.includes('solid');
+  const isBuum = routineType === 'BUUM' || roomLower.includes('buum');
+  const isLevel = routineType === 'LEVEL' || roomLower.includes('level');
 
   // Giro and Beats are 45 min (2700s), others are 60 min (3600s)
   const totalClassMs = (classType === 'Giro' || classType === 'Beats' ? 2700 : 3600) * 1000;
@@ -485,6 +493,14 @@ const Routine: React.FC = () => {
       exerciseTimeRemainingSec > 20 &&
       nextBlockZone !== 'STRETCHING';
     setShowNextBlockText(shouldShowNextBlockText);
+
+    // Show QR code for attendance during WARM UP phase (first ~7 minutes of class)
+    // QR appears when class has started and we're still in WARM UP zone
+    const targetZoneForQR = classInfo[targetExerciseIndex]?.zone || classInfo[targetExerciseIndex]?.exercises?.[0]?.zone;
+    const isInWarmUp = targetZoneForQR === 'WARM UP';
+    // Also show QR during the first 5 minutes (300s) even if not in WARM UP zone
+    const isWithinFirst5Min = timeElapsedMs > 0 && timeElapsedMs <= 300000;
+    setShowQR(isInWarmUp || isWithinFirst5Min);
 
     // Update exercise index if different
     if (targetExerciseIndex !== currentExerciseIndex) {
@@ -747,6 +763,30 @@ const Routine: React.FC = () => {
       !isAudioActuallyPlaying; // Force play if audio stopped unexpectedly
 
     if (!needsPlay) return; // Already playing the right track
+
+    // If the next track is the same song as the current one, just change volume — don't restart
+    const prevTrackIndex = currentMusicIndexRef.current;
+    if (
+      prevTrackIndex >= 0 &&
+      targetTrackIndex !== prevTrackIndex &&
+      musicPlaylist[targetTrackIndex]?.song_id === musicPlaylist[prevTrackIndex]?.song_id &&
+      isAudioActuallyPlaying &&
+      !forceNext
+    ) {
+      const volume = normalizeVolume(track.volume);
+      const multiplier = getVolumeMultiplier(intensityLevel);
+      const adjustedVolume = volume * multiplier;
+
+      console.log(
+        `Music: Same song "${track.song_name}" (index ${prevTrackIndex} → ${targetTrackIndex}), only changing volume to ${adjustedVolume}`
+      );
+
+      if (musicAudioRef.current) {
+        musicAudioRef.current.volume = adjustedVolume;
+      }
+      currentMusicIndexRef.current = targetTrackIndex;
+      return;
+    }
 
     // Log when we detect audio stopped unexpectedly
     if (!isAudioActuallyPlaying && musicInitializedRef.current) {
@@ -1104,7 +1144,93 @@ const Routine: React.FC = () => {
         );
       }
 
-      // Show next exercise preview during REST (after GIF)
+      // Buum REST preview: show all next exercises in grid
+      if (isBuum && nextBlockData) {
+        const nextExercises = nextBlockData.exercises || [];
+        return (
+          <div className={styles.buumContainer}>
+            {nextExercises.map((exercise: any, index: number) => {
+              const exVideo = exercise?.video_urls?.[0];
+              return (
+                <React.Fragment key={index}>
+                  {index > 0 && <div className={styles.dividerLine}></div>}
+                  <div className={styles.buumExerciseWrapper}>
+                    <h2 className={styles.exerciseName}>
+                      <div className={styles.nameContainer}>
+                        <span>{exercise?.exercise_name || ''}</span>
+                      </div>
+                    </h2>
+                    {exVideo ? (
+                      <VideoContainer
+                        name={`buum-next-${index}`}
+                        video={getLoadBalancedVideoURL(exVideo, selectedCDN)}
+                        height="100%"
+                        width="100%"
+                      />
+                    ) : (
+                      <div className={styles.noVideo}>
+                        <p>{exercise?.exercise_name || ''}</p>
+                      </div>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        );
+      }
+
+      // Level REST preview: show next 3 zones
+      if (isLevel && nextBlockData) {
+        const nextExercises = nextBlockData.exercises || [];
+        const nextReformer = nextExercises[2];
+        const nextMatt = nextExercises[0];
+        const nextPulley = nextExercises[1];
+        return (
+          <div className={styles.levelContainer}>
+            <div className={styles.levelZone}>
+              <div className={styles.levelZoneLabel}>REFORMER</div>
+              {nextReformer?.video_urls?.[0] ? (
+                <VideoContainer
+                  name="level-next-reformer"
+                  video={getLoadBalancedVideoURL(nextReformer.video_urls[0], selectedCDN)}
+                  height="100%" width="100%"
+                />
+              ) : (
+                <div className={styles.noVideo}><p>{nextReformer?.exercise_name || 'REFORMER'}</p></div>
+              )}
+            </div>
+            <div className={styles.levelDividerLine}></div>
+            <div className={styles.levelZone}>
+              <div className={styles.levelZoneLabel}>MATT</div>
+              {nextMatt?.video_urls?.[0] ? (
+                <VideoContainer
+                  name="level-next-matt"
+                  video={getLoadBalancedVideoURL(nextMatt.video_urls[0], selectedCDN)}
+                  height="100%" width="100%"
+                />
+              ) : (
+                <div className={styles.noVideo}><p>{nextMatt?.exercise_name || 'MATT'}</p></div>
+              )}
+            </div>
+            <div className={styles.levelDividerLine}></div>
+            <div className={styles.levelZone}>
+              <div className={styles.levelZoneLabel}>PULLEY</div>
+              {nextPulley?.video_urls?.[0] ? (
+                <VideoContainer
+                  name="level-next-pulley"
+                  video={getLoadBalancedVideoURL(nextPulley.video_urls[0], selectedCDN)}
+                  height="100%" width="100%"
+                />
+              ) : (
+                <div className={styles.noVideo}><p>{nextPulley?.exercise_name || 'PULLEY'}</p></div>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Show next exercise preview during REST (after GIF) - standard 2-video
       if (nextBlockData) {
       return (
         <div
@@ -1215,6 +1341,176 @@ const Routine: React.FC = () => {
                 <p>{nextExercise2.exercise_name}</p>
               </div>
             ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    // === BUUM: Multi-exercise grid (up to 7 exercises) ===
+    if (isBuum) {
+      return (
+        <div className={styles.buumContainer}>
+          {exerciseDetails.map((exercise: any, index: number) => {
+            const exVideo = exercise?.video_urls?.[0];
+            return (
+              <React.Fragment key={index}>
+                {index > 0 && <div className={styles.dividerLine}></div>}
+                <div className={styles.buumExerciseWrapper}>
+                  {exVideo ? (
+                    <VideoContainer
+                      name={`buum-exercise-${index}`}
+                      video={getLoadBalancedVideoURL(exVideo, selectedCDN)}
+                      height="100%"
+                      width="100%"
+                    />
+                  ) : (
+                    <div className={styles.noVideo}>
+                      <p>{exercise?.exercise_name || ''}</p>
+                    </div>
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          })}
+          {/* Vertical info panel on the right */}
+          <div className={styles.dividerLine}></div>
+          <div className={styles.buumInfoPanel}>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>BLOCK</span>
+              <span className={styles.buumInfoValue}>
+                {currentBlock >= 10 ? currentBlock : `0${currentBlock || 0}`}
+              </span>
+              <div className={styles.buumInfoDivider}></div>
+            </div>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>CYCLES</span>
+              <span className={styles.buumInfoValue}>
+                0{currentCycle || 0}
+              </span>
+              <div className={styles.buumInfoDivider}></div>
+            </div>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>TIME</span>
+              <span className={styles.buumInfoValue}>
+                {Math.floor(exerciseTimer / 60).toString().padStart(2, '0')}:
+                {Math.floor(exerciseTimer % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // === LEVEL: 3-zone layout (Reformer + Matt + Pulley) ===
+    if (isLevel) {
+      const reformerExercise = exerciseDetails[2]; // exercises[2] = REFORMER
+      const mattExercise = exerciseDetails[0];      // exercises[0] = MATT
+      const pulleyExercise = exerciseDetails[1];    // exercises[1] = PULLEY
+      const reformerVideo = reformerExercise?.video_urls?.[0];
+      const mattVideo = mattExercise?.video_urls?.[0];
+      const pulleyVideo = pulleyExercise?.video_urls?.[0];
+
+      return (
+        <div className={styles.levelContainer}>
+          {/* Left info panel */}
+          <div className={styles.levelInfoPanel}>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>BLOCK</span>
+              <span className={styles.buumInfoValue}>
+                {currentBlock >= 10 ? currentBlock : `0${currentBlock || 0}`}
+              </span>
+              <div className={styles.buumInfoDivider}></div>
+            </div>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>CYCLES</span>
+              <span className={styles.buumInfoValue}>
+                0{currentCycle || 0}
+              </span>
+              <div className={styles.buumInfoDivider}></div>
+            </div>
+            <div className={styles.buumInfoItem}>
+              <span className={styles.buumInfoLabel}>TIME</span>
+              <span className={styles.buumInfoValue}>
+                {Math.floor(exerciseTimer / 60).toString().padStart(2, '0')}:
+                {Math.floor(exerciseTimer % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+          </div>
+
+          {/* REFORMER zone */}
+          <div className={styles.levelZone}>
+            <div className={styles.levelZoneLabel}>REFORMER</div>
+            {reformerVideo ? (
+              <VideoContainer
+                name="level-reformer"
+                video={getLoadBalancedVideoURL(reformerVideo, selectedCDN)}
+                height="100%"
+                width="100%"
+              />
+            ) : (
+              <div className={styles.noVideo}>
+                <p>{reformerExercise?.exercise_name || 'REFORMER'}</p>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.levelDividerLine}></div>
+
+          {/* MATT zone */}
+          <div className={styles.levelZone}>
+            <div className={styles.levelZoneLabel}>MATT</div>
+            {mattVideo ? (
+              <VideoContainer
+                name="level-matt"
+                video={getLoadBalancedVideoURL(mattVideo, selectedCDN)}
+                height="100%"
+                width="100%"
+              />
+            ) : (
+              <div className={styles.noVideo}>
+                <p>{mattExercise?.exercise_name || 'MATT'}</p>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.levelDividerLine}></div>
+
+          {/* PULLEY zone */}
+          <div className={styles.levelZone}>
+            <div className={styles.levelZoneLabel}>PULLEY</div>
+            {pulleyVideo ? (
+              <VideoContainer
+                name="level-pulley"
+                video={getLoadBalancedVideoURL(pulleyVideo, selectedCDN)}
+                height="100%"
+                width="100%"
+              />
+            ) : (
+              <div className={styles.noVideo}>
+                <p>{pulleyExercise?.exercise_name || 'PULLEY'}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Fitness level indicators */}
+          <div className={styles.levelIndicators}>
+            <div className={styles.levelIndicatorGroup}>
+              <span className={styles.levelIndicatorCategory}>AMATEUR</span>
+              <span className={styles.levelIndicatorDifficulty}>LOW</span>
+            </div>
+            <div className={styles.levelIndicatorGroup}>
+              <span className={styles.levelIndicatorCategory}>FITNESS</span>
+              <span className={styles.levelIndicatorDifficulty}>MEDIUM</span>
+            </div>
+            <div className={styles.levelIndicatorGroup}>
+              <span className={styles.levelIndicatorCategory}>PRO</span>
+              <span className={styles.levelIndicatorDifficulty}>HIGH</span>
+            </div>
+            <div className={styles.levelCircles}>
+              <div className={styles.levelCircle} style={{ borderColor: '#FFD600' }}>EASY</div>
+              <div className={styles.levelCircle} style={{ borderColor: '#00BFFF' }}>MEDIUM</div>
+              <div className={styles.levelCircle} style={{ borderColor: '#FF0000' }}>HARD</div>
+            </div>
           </div>
         </div>
       );
@@ -1379,6 +1675,13 @@ const Routine: React.FC = () => {
       {showNextBlockText && (
         <div className={styles.nextBlockTextContainer}>
           <p>NEXT BLOCK</p>
+        </div>
+      )}
+
+      {/* QR Code for attendance - shows during WARM UP / first 5 minutes */}
+      {showQR && currentRoutine?.type && (
+        <div className={styles.routineQRContainer}>
+          <QRContainer classType={currentRoutine.type} />
         </div>
       )}
 

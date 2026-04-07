@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld('electron', {
   app: {
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
     getPlatform: () => process.platform,
+    installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+    onUpdateDownloaded: (cb: () => void) => {
+      ipcRenderer.on('update:downloaded', () => cb());
+      return () => { ipcRenderer.removeAllListeners('update:downloaded'); };
+    },
   },
 });
 
@@ -87,6 +92,8 @@ declare global {
       app: {
         getVersion: () => Promise<string>;
         getPlatform: () => string;
+        installUpdate: () => Promise<void>;
+        onUpdateDownloaded: (cb: () => void) => () => void;
       };
     };
   }

@@ -154,7 +154,13 @@ const Home: React.FC = () => {
     setSection(3);
   };
 
-  // Fetch routines
+  // Giro room IDs use a different API endpoint
+  const GIRO_ROOM_IDS = [
+    '114', '272', '63', '277', '278', '284', '281', '268',
+    '175', '144', '244', '267', '282', '197', '130', '191',
+  ];
+
+  // Fetch routines from the room's normal schedule
   const fetchRoutines = useCallback(async () => {
     const currentToken = token || storeToken;
     if (!currentToken || !roomId) return;
@@ -163,12 +169,13 @@ const Home: React.FC = () => {
       const today = new Date();
       const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-      // TEST MODE: always fetch from /v1/routine-day/2027-02-03/room/3 (Tonic) and start in 1 min
-      const testMode = true;
-      const fetchDate = testMode ? '2027-02-03' : dateStr;
-      const fetchRoomId = testMode ? '3' : roomId;
+      // Use the appropriate endpoint based on room type
+      const isGiroRoom = GIRO_ROOM_IDS.includes(roomId);
+      const endpoint = isGiroRoom
+        ? `${API_BASE_URL}v1/routine-day-giro/${dateStr}/room/${roomId}`
+        : `${API_BASE_URL}v1/routine-day/${dateStr}/room/${roomId}`;
 
-      const response = await fetch(`${API_BASE_URL}v1/routine-day/${fetchDate}/room/${fetchRoomId}`, {
+      const response = await fetch(endpoint, {
         headers: {
           Authorization: `Token ${currentToken}`,
           'Content-Type': 'application/json',
@@ -180,35 +187,30 @@ const Home: React.FC = () => {
         console.log('API response - routines count:', data.result.routines.length);
         console.log('API response - routine types:', data.result.routines.map((r: any) => r.type));
 
-        // Test override: select specific class type and start with normal countdown
-        if (testMode && data.result.routines.length > 0) {
-          const testClassType = 'SOLID'; // Change to 'TONIC' or 'SOLID' to test different class types
-          const countdownSeconds = 60; // Start class in 60 seconds (normal countdown)
-
-          // Find the routine with matching type, or fallback to first
-          const targetRoutine = data.result.routines.find((r: any) => r.type === testClassType) || data.result.routines[0];
-          const targetIndex = data.result.routines.indexOf(targetRoutine);
-
-          console.log(`TEST MODE: Selected ${targetRoutine.type} class (index ${targetIndex}), starting in ${countdownSeconds} seconds`);
-
-          const testRoutine = {
-            ...targetRoutine,
-            time_from: Date.now() + (countdownSeconds * 1000), // Class starts in 60 seconds
-          };
-
-          // Replace the target routine with modified time
-          data.result.routines[targetIndex] = testRoutine;
-        }
-
         setRoutines(data.result.routines);
 
-        // Find next class (within 1 hour window, or test mode override)
+        // Find the next upcoming class or a class currently in progress (within 1 hour window)
         const now = Date.now();
-        const upcoming = data.result.routines.find(
-          (r: any) => r.time_from > now - 3600000 && r.time_from < now + 3600000
-        );
-        if (upcoming) {
-          setNextClass(upcoming);
+        let foundClass = null;
+
+        for (const routine of data.result.routines) {
+          const diff = now - routine.time_from;
+
+          // Class currently in progress (started less than 1 hour ago)
+          if (diff > 0 && diff < 3600000) {
+            foundClass = routine;
+            break;
+          }
+
+          // Class about to start (in the future)
+          if (diff <= 0) {
+            foundClass = routine;
+            break;
+          }
+        }
+
+        if (foundClass) {
+          setNextClass(foundClass);
         }
       }
     } catch (error) {
@@ -300,6 +302,18 @@ const Home: React.FC = () => {
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [nextClass, navigate, setCurrentRoutine]);
+
+  // Auto-update: force restart when update is ready and on countdown screen (no class running)
+  useEffect(() => {
+    if (section !== 3) return;
+
+    const cleanup = window.electron.app.onUpdateDownloaded(() => {
+      // On countdown screen = no class running → safe to force install
+      window.electron.app.installUpdate();
+    });
+
+    return cleanup;
+  }, [section]);
 
   // Fullscreen toggle
   const handleFullScreenClick = () => {

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-// import { autoUpdater } from 'electron-updater'; // Disabled for now
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import { MqttManager } from './mqtt/MqttManager';
 import { AudioEngine } from './audio/AudioEngine';
@@ -38,9 +38,6 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  // Always open DevTools for debugging (remove this line in final production)
-  mainWindow.webContents.openDevTools();
-
   // Initialize managers
   mqttManager = new MqttManager();
   audioEngine = new AudioEngine();
@@ -75,6 +72,29 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Auto-updater setup
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', () => {
+    mainWindow?.webContents.send('update:downloaded');
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('Auto-updater error:', err);
+  });
+
+  // Check for updates on startup and every 30 minutes
+  autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
+  }, 30 * 60 * 1000);
+
+  // IPC handler: force install update
+  ipcMain.handle('app:installUpdate', () => {
+    autoUpdater.quitAndInstall();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

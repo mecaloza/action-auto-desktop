@@ -32,6 +32,16 @@ const V8_CLUBS = [
   'Park',
   'Botafogo',
   'City',
+  'ExitoPoblado',
+  'Savassi',
+  'FIC48CDDelRio',
+  'MallGranVia',
+  'CCColina',
+  'Malllareserva',
+  'SanDiego',
+  'ExitoChapinero',
+  'PlazaFabricato',
+  'CCLaFelicidad',
 ];
 
 export class MqttManager {

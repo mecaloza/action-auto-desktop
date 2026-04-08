@@ -771,16 +771,9 @@ const Routine: React.FC = () => {
       return;
     }
 
-    // Check if audio is actually playing - safety check to ensure music never stops
-    const isAudioActuallyPlaying = musicAudioRef.current &&
-      !musicAudioRef.current.paused &&
-      !musicAudioRef.current.ended &&
-      musicAudioRef.current.currentTime > 0;
-
     const needsPlay = targetTrackIndex !== currentMusicIndexRef.current ||
       !musicInitializedRef.current ||
-      forceNext ||
-      !isAudioActuallyPlaying; // Force play if audio stopped unexpectedly
+      forceNext;
 
     if (!needsPlay) return; // Already playing the right track
 
@@ -790,7 +783,7 @@ const Routine: React.FC = () => {
       prevTrackIndex >= 0 &&
       targetTrackIndex !== prevTrackIndex &&
       musicPlaylist[targetTrackIndex]?.song_id === musicPlaylist[prevTrackIndex]?.song_id &&
-      isAudioActuallyPlaying &&
+      musicAudioRef.current && !musicAudioRef.current.paused &&
       !forceNext
     ) {
       const volume = normalizeVolume(track.volume);
@@ -806,11 +799,6 @@ const Routine: React.FC = () => {
       }
       currentMusicIndexRef.current = targetTrackIndex;
       return;
-    }
-
-    // Log when we detect audio stopped unexpectedly
-    if (!isAudioActuallyPlaying && musicInitializedRef.current) {
-      console.log('Music: SAFETY CHECK - Audio stopped unexpectedly, restarting...');
     }
 
     // When forcing next track, start from the beginning (song_millisecond_start only)
@@ -868,101 +856,42 @@ const Routine: React.FC = () => {
       fadingOutAudioRef.current = null;
     }
 
-    const oldAudio = musicAudioRef.current;
-    const hasOldTrack = oldAudio && isNewTrack;
-
-    // Play using HTML5 Audio directly in the renderer process
-    const audio = new Audio(trackUrl);
-    audio.currentTime = seekPosition / 1000; // convert ms to seconds
-    musicAudioRef.current = audio;
-
-    // Listen for track ending early - immediately switch to next track
-    audio.addEventListener('ended', () => {
-      console.log('Music: Track ended naturally, forcing switch to next track');
-      if (musicAudioRef.current === audio) {
-        forceNextTrackRef.current = true;
-        // Trigger immediate re-render to process the force switch
-        setMusicTrigger(prev => prev + 1);
-      }
-    });
-
-    // Listen for errors - if track fails to load, switch to next track
-    audio.addEventListener('error', (e) => {
-      console.error('Music: Track failed to load, switching to next track', e);
-      if (musicAudioRef.current === audio) {
-        forceNextTrackRef.current = true;
-        setMusicTrigger(prev => prev + 1);
-      }
-    });
-
-    // Listen for stalled/stuck playback - restart if needed
-    audio.addEventListener('stalled', () => {
-      console.log('Music: Playback stalled, will retry on next tick');
-    });
-
-    if (hasOldTrack) {
-      // === CROSSFADE: fade out old track, fade in new track ===
-      const oldStartVolume = oldAudio.volume;
-      const stepInterval = CROSSFADE_MS / FADE_STEPS;
-      let step = 0;
-
-      // Start new track at near-zero volume
-      audio.volume = 0.01;
-      audio.play().then(() => {
-        console.log('Music: crossfade - new track started');
-      }).catch((err: unknown) => {
-        console.error('Music: crossfade play() FAILED:', err);
-      });
-
-      // Move old audio to fading-out ref so cleanup functions can find it
-      fadingOutAudioRef.current = oldAudio;
-
-      fadeIntervalRef.current = setInterval(() => {
-        step++;
-        const progress = step / FADE_STEPS; // 0 → 1
-
-        // Fade out old track
-        if (fadingOutAudioRef.current) {
-          fadingOutAudioRef.current.volume = Math.max(0, oldStartVolume * (1 - progress));
-        }
-
-        // Fade in new track
-        if (musicAudioRef.current === audio) {
-          audio.volume = adjustedVolume * progress;
-        }
-
-        // Done fading
-        if (step >= FADE_STEPS) {
-          if (fadeIntervalRef.current) {
-            clearInterval(fadeIntervalRef.current);
-            fadeIntervalRef.current = null;
-          }
-          // Kill old track completely
-          if (fadingOutAudioRef.current) {
-            fadingOutAudioRef.current.pause();
-            fadingOutAudioRef.current.src = '';
-            fadingOutAudioRef.current = null;
-          }
-          // Ensure new track is at target volume
-          if (musicAudioRef.current === audio) {
-            audio.volume = adjustedVolume;
-          }
-          console.log('Music: crossfade complete');
-        }
-      }, stepInterval);
-    } else {
-      // === NO CROSSFADE: first track or initial sync ===
-      if (oldAudio) {
-        oldAudio.pause();
-        oldAudio.src = '';
-      }
-      audio.volume = adjustedVolume;
-      audio.play().then(() => {
-        console.log('Music: playing successfully');
-      }).catch((err: unknown) => {
-        console.error('Music: play() FAILED:', err);
-      });
+    // Stop any ongoing crossfade
+    if (fadingOutAudioRef.current) {
+      fadingOutAudioRef.current.pause();
+      fadingOutAudioRef.current.src = '';
+      fadingOutAudioRef.current = null;
     }
+
+    // Reuse existing Audio element or create one (only once)
+    let audio = musicAudioRef.current;
+    if (!audio) {
+      audio = new Audio();
+      // Listen for track ending - switch to next track
+      audio.addEventListener('ended', () => {
+        console.log('Music: Track ended naturally, forcing switch to next track');
+        forceNextTrackRef.current = true;
+        setMusicTrigger(prev => prev + 1);
+      });
+      // Listen for errors - switch to next track
+      audio.addEventListener('error', (e) => {
+        console.error('Music: Track failed to load, switching to next track', e);
+        forceNextTrackRef.current = true;
+        setMusicTrigger(prev => prev + 1);
+      });
+      musicAudioRef.current = audio;
+    }
+
+    // Switch track: stop current, load new source
+    audio.pause();
+    audio.src = trackUrl;
+    audio.currentTime = seekPosition / 1000;
+    audio.volume = adjustedVolume;
+    audio.play().then(() => {
+      console.log('Music: playing successfully');
+    }).catch((err: unknown) => {
+      console.error('Music: play() FAILED:', err);
+    });
   }, [currentExerciseIndex, classTimeRemaining, currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, normalizeVolume, getVolumeMultiplier, musicTrigger, domoChecked, showDomoVideo, domoVideoEnded]);
 
   // Preload next music track using HTML5 Audio in renderer

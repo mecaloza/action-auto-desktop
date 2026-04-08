@@ -8,9 +8,15 @@ import { setupIpcHandlers } from './ipc/handlers';
 let mainWindow: BrowserWindow | null = null;
 let mqttManager: MqttManager | null = null;
 let audioEngine: AudioEngine | null = null;
+let isQuitting = false;
 
 // Check if we're in development by looking for the vite dev server
 const isDev = process.env.NODE_ENV === 'development';
+
+// Handle being launched by the installer (NSIS) - allow quit during install/uninstall
+if (process.argv.some(arg => arg.startsWith('--updated') || arg.startsWith('--uninstall'))) {
+  isQuitting = true;
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -113,6 +119,7 @@ app.whenReady().then(() => {
 
   // IPC handler: force install update
   ipcMain.handle('app:installUpdate', () => {
+    isQuitting = true;
     autoUpdater.quitAndInstall();
   });
 
@@ -124,16 +131,19 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  // On Windows: recreate the window instead of quitting
-  // This prevents accidental closure during a class
-  if (process.platform !== 'darwin') {
+  if (isQuitting) {
+    // Allow normal quit (installer, update, user intentional quit)
+    app.quit();
+  } else if (process.platform !== 'darwin') {
+    // Crash recovery: recreate the window instead of quitting
     console.error('All windows closed unexpectedly, recreating...');
     createWindow();
   }
 });
 
-// Prevent memory leaks - clean up on exit
+// Mark as intentional quit so window-all-closed allows it
 app.on('before-quit', () => {
+  isQuitting = true;
   mqttManager?.disconnect();
   audioEngine?.stop();
 });

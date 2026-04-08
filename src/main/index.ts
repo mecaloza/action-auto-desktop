@@ -88,7 +88,8 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('disable-accelerated-video-decode');
 app.commandLine.appendSwitch('disable-gpu-video-decode');
 
-// NOTE: Removed disable-accelerated-audio-decode - it was blocking audio playback in production builds
+// Fix audio playback on Windows - keep audio service in-process
+app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess,AudioServiceSandbox');
 
 // Ignore GPU blocklist for better compatibility
 app.commandLine.appendSwitch('ignore-gpu-blocklist');

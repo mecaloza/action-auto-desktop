@@ -577,6 +577,20 @@ const Routine: React.FC = () => {
     window.electron.app.getVersion().then(setAppVersion);
   }, []);
 
+  // Unlock audio context on mount - required for Windows Electron autoplay
+  useEffect(() => {
+    const unlockAudio = () => {
+      const silentAudio = new Audio();
+      silentAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      silentAudio.volume = 0;
+      silentAudio.play().then(() => {
+        console.log('Audio context unlocked');
+        silentAudio.pause();
+      }).catch(() => {});
+    };
+    unlockAudio();
+  }, []);
+
   // Preload beep sound on mount
   useEffect(() => {
     const beepUrl = `${selectedCDN}/audios/beep.mp3`;

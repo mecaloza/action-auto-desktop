@@ -50,6 +50,7 @@ const Home: React.FC = () => {
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
 
   // Handle right-click context menu
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -304,6 +305,11 @@ const Home: React.FC = () => {
     return () => clearInterval(interval);
   }, [nextClass, navigate, setCurrentRoutine]);
 
+  // Fetch app version on mount
+  useEffect(() => {
+    window.electron.app.getVersion().then(setAppVersion);
+  }, []);
+
   // Listen for update downloaded event
   useEffect(() => {
     const cleanup = window.electron.app.onUpdateDownloaded(() => {
@@ -536,6 +542,11 @@ const Home: React.FC = () => {
               ))
             )}
           </div>
+
+          {/* Version label - small in bottom-right corner */}
+          {appVersion && (
+            <span className={styles.versionLabel}>v{appVersion}</span>
+          )}
 
         </div>
       )}

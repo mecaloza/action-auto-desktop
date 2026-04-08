@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import { MqttManager } from './mqtt/MqttManager';
@@ -11,11 +11,6 @@ let audioEngine: AudioEngine | null = null;
 
 // Check if we're in development by looking for the vite dev server
 const isDev = process.env.NODE_ENV === 'development';
-
-// Register custom scheme as privileged to allow audio/media streaming in production
-protocol.registerSchemesAsPrivileged([
-  { scheme: 'file', privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
-]);
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -78,9 +73,9 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.whenReady().then(() => {
   createWindow();
 
-  // Auto-updater setup
+  // Auto-updater setup: download but NEVER auto-install (user must click the button)
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('update-downloaded', () => {
     mainWindow?.webContents.send('update:downloaded');

@@ -188,6 +188,16 @@ button {
   }
 }
 
+.versionLabel {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .containerQR {
   position: absolute;
   padding: 0.3%;

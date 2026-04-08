@@ -57,6 +57,7 @@ const Routine: React.FC = () => {
   const [jabCombinationNumbers, setJabCombinationNumbers] = useState<string[]>([]); // Jab punch combination numbers
   const [showNextBlockText, setShowNextBlockText] = useState(false); // "NEXT BLOCK" text overlay for Tonic/Solido REST
   const [showQR, setShowQR] = useState(false); // QR code for attendance signing during WARM UP
+  const [appVersion, setAppVersion] = useState('');
 
   // Check if we should show domo video on mount (only if class just started)
   useEffect(() => {
@@ -569,6 +570,11 @@ const Routine: React.FC = () => {
       musicInitializedRef.current = false;
       minTrackIndexRef.current = 0;
     };
+  }, []);
+
+  // Fetch app version on mount
+  useEffect(() => {
+    window.electron.app.getVersion().then(setAppVersion);
   }, []);
 
   // Preload beep sound on mount
@@ -1704,6 +1710,19 @@ const Routine: React.FC = () => {
         roomType={roomName}
         exerciseNames={exerciseDetails}
       />
+
+      {/* Version label - small in bottom-right corner */}
+      {appVersion && (
+        <span style={{
+          position: 'absolute',
+          bottom: 4,
+          right: 8,
+          fontSize: '0.65rem',
+          color: 'rgba(255,255,255,0.3)',
+          pointerEvents: 'none',
+          zIndex: 1,
+        }}>v{appVersion}</span>
+      )}
     </div>
   );
 };

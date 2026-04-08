@@ -47,6 +47,26 @@ function createWindow(): void {
   // Setup IPC handlers
   setupIpcHandlers(ipcMain, mqttManager, audioEngine);
 
+  // Prevent renderer crashes from closing the app - reload instead
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process gone:', details.reason);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    }
+  });
+
+  mainWindow.webContents.on('crashed', () => {
+    console.error('Renderer crashed, reloading...');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    }
+  });
+
+  // Prevent the window from being closed accidentally
+  mainWindow.on('unresponsive', () => {
+    console.error('Window unresponsive, waiting for recovery...');
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
     mqttManager?.disconnect();
@@ -104,8 +124,11 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  // On Windows: recreate the window instead of quitting
+  // This prevents accidental closure during a class
   if (process.platform !== 'darwin') {
-    app.quit();
+    console.error('All windows closed unexpectedly, recreating...');
+    createWindow();
   }
 });
 
@@ -115,11 +138,27 @@ app.on('before-quit', () => {
   audioEngine?.stop();
 });
 
-// Handle uncaught exceptions to prevent crashes during long sessions
+// Handle uncaught exceptions - NEVER let the app die
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
+  // Try to recover by reloading the renderer
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    } catch (e) {
+      console.error('Failed to reload after uncaught exception:', e);
+    }
+  }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled rejection at:', promise, 'reason:', reason);
+});
+
+// Handle GPU process crash - reload renderer
+app.on('gpu-process-crashed' as any, (_event: any, killed: boolean) => {
+  console.error('GPU process crashed, killed:', killed);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.reload();
+  }
 });

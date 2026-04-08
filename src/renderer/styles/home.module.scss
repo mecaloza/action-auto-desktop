@@ -163,6 +163,31 @@ button {
   height: 50px;
 }
 
+.updateButton {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: background-color 0.2s;
+
+  &:hover {
+    background-color: #43a047;
+  }
+
+  &:active {
+    background-color: #388e3c;
+  }
+}
+
 .containerQR {
   position: absolute;
   padding: 0.3%;

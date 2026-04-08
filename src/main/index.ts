@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import { MqttManager } from './mqtt/MqttManager';
@@ -12,6 +12,11 @@ let audioEngine: AudioEngine | null = null;
 // Check if we're in development by looking for the vite dev server
 const isDev = process.env.NODE_ENV === 'development';
 
+// Register custom scheme as privileged to allow audio/media streaming in production
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'file', privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } }
+]);
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1920,
@@ -24,6 +29,8 @@ function createWindow(): void {
       contextIsolation: true,
       // CRITICAL: Enable autoplay without user gesture
       autoplayPolicy: 'no-user-gesture-required',
+      // Allow renderer to fetch remote audio/media from file:// protocol in production
+      webSecurity: false,
     },
   });
 
@@ -60,9 +67,7 @@ app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('disable-accelerated-video-decode');
 app.commandLine.appendSwitch('disable-gpu-video-decode');
 
-// Disable audio decoding acceleration to avoid audio codec issues
-// Some video files have problematic audio tracks that fail to decode
-app.commandLine.appendSwitch('disable-accelerated-audio-decode');
+// NOTE: Removed disable-accelerated-audio-decode - it was blocking audio playback in production builds
 
 // Ignore GPU blocklist for better compatibility
 app.commandLine.appendSwitch('ignore-gpu-blocklist');

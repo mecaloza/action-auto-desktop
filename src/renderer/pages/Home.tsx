@@ -49,6 +49,7 @@ const Home: React.FC = () => {
   const [showQR, setShowQR] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   // Handle right-click context menu
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -303,17 +304,13 @@ const Home: React.FC = () => {
     return () => clearInterval(interval);
   }, [nextClass, navigate, setCurrentRoutine]);
 
-  // Auto-update: force restart when update is ready and on countdown screen (no class running)
+  // Listen for update downloaded event
   useEffect(() => {
-    if (section !== 3) return;
-
     const cleanup = window.electron.app.onUpdateDownloaded(() => {
-      // On countdown screen = no class running → safe to force install
-      window.electron.app.installUpdate();
+      setUpdateAvailable(true);
     });
-
     return cleanup;
-  }, [section]);
+  }, []);
 
   // Fullscreen toggle
   const handleFullScreenClick = () => {
@@ -453,6 +450,19 @@ const Home: React.FC = () => {
             </div>
           )}
           <button className={styles.button_fullsize}></button>
+
+          {/* Update button - only visible when a new version is downloaded */}
+          {updateAvailable && (
+            <button
+              className={styles.updateButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.electron.app.installUpdate();
+              }}
+            >
+              Update Available — Tap to Install
+            </button>
+          )}
 
           {/* QR Code - shows 5 minutes before class */}
           {showQR && nextClass?.type && (

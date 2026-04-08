@@ -174,6 +174,7 @@ const Routine: React.FC = () => {
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastBeepTimeRef = useRef<number>(-1);
   const beepAudioRef = useRef<HTMLAudioElement | null>(null);
+  const bellAudioRef = useRef<HTMLAudioElement | null>(null);
   const domoVideoRef = useRef<HTMLVideoElement>(null);
 
   // Music player state
@@ -591,7 +592,7 @@ const Routine: React.FC = () => {
     unlockAudio();
   }, []);
 
-  // Preload beep sound on mount
+  // Preload beep and bell sounds on mount - reuse same elements always
   useEffect(() => {
     const beepUrl = `${selectedCDN}/audios/beep.mp3`;
     const beep = new Audio(beepUrl);
@@ -599,6 +600,13 @@ const Routine: React.FC = () => {
     beep.load();
     beepAudioRef.current = beep;
     console.log('Beep sound preloaded:', beepUrl);
+
+    const bellUrl = `${selectedCDN}/audios/BELL_SOUND.mp3`;
+    const bell = new Audio(bellUrl);
+    bell.preload = 'auto';
+    bell.load();
+    bellAudioRef.current = bell;
+    console.log('Bell sound preloaded:', bellUrl);
   }, [selectedCDN]);
 
   // Parse Jab combination numbers from exercise name (e.g., "1 - 2 - 3" -> ["1", "2", "3"])
@@ -926,14 +934,15 @@ const Routine: React.FC = () => {
     if (isNextKnockoutOrFree) {
       if (exerciseTimer <= 0 && lastBeepTimeRef.current !== 0) {
         lastBeepTimeRef.current = 0;
-        const bellAudio = new Audio(`${selectedCDN}/audios/BELL_SOUND.mp3`);
-        bellAudio.volume = 0.5;
-        bellAudio.currentTime = 0;
-        bellAudio.play().then(() => {
-          console.log('Boxing bell played for KNOCKOUT/FREE transition');
-        }).catch((err) => {
-          console.log('Boxing bell failed to play:', err);
-        });
+        if (bellAudioRef.current) {
+          bellAudioRef.current.volume = 0.5;
+          bellAudioRef.current.currentTime = 0;
+          bellAudioRef.current.play().then(() => {
+            console.log('Boxing bell played for KNOCKOUT/FREE transition');
+          }).catch((err) => {
+            console.log('Boxing bell failed to play:', err);
+          });
+        }
       }
       // Reset lastBeepTime when timer goes above 3 (new exercise started)
       if (exerciseTimer > 3) {
@@ -948,27 +957,19 @@ const Routine: React.FC = () => {
 
       const volume = clubName === 'Alcala' || clubName === 'OrtegayGasset' || clubName === 'Ventas' ? 0.2 : 0.5;
 
-      // Use preloaded beep or create new one
+      // Use preloaded beep element - always reuse, never create new
       if (beepAudioRef.current) {
         beepAudioRef.current.volume = volume;
         beepAudioRef.current.currentTime = 0;
         beepAudioRef.current.play().then(() => {
           console.log('Beep played at', exerciseTimer, 'seconds for exercise index:', currentExerciseIndex);
         }).catch((err) => {
-          console.log('Beep failed, creating new audio:', err);
-          // Fallback: create new audio
-          const fallbackBeep = new Audio(`${selectedCDN}/audios/beep.mp3`);
-          fallbackBeep.volume = volume;
-          fallbackBeep.play().catch(() => {});
-        });
-      } else {
-        // Fallback if preload didn't work
-        const beepAudio = new Audio(`${selectedCDN}/audios/beep.mp3`);
-        beepAudio.volume = volume;
-        beepAudio.play().then(() => {
-          console.log('Beep (fallback) played at', exerciseTimer, 'seconds');
-        }).catch((err) => {
-          console.log('Beep sound failed to play:', err);
+          console.log('Beep failed:', err);
+          // Retry: reload the same element and play again
+          if (beepAudioRef.current) {
+            beepAudioRef.current.load();
+            beepAudioRef.current.play().catch(() => {});
+          }
         });
       }
     }

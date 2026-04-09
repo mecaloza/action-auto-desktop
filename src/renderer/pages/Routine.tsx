@@ -53,11 +53,12 @@ const Routine: React.FC = () => {
   const [domoChecked, setDomoChecked] = useState(false); // Track if we've checked whether to show domo
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
-  const [musicTrigger, setMusicTrigger] = useState(0); // Used to force music useEffect to re-run
+  // musicTrigger removed - music now uses stable setInterval instead of React effect deps
   const [jabCombinationNumbers, setJabCombinationNumbers] = useState<string[]>([]); // Jab punch combination numbers
   const [showNextBlockText, setShowNextBlockText] = useState(false); // "NEXT BLOCK" text overlay for Tonic/Solido REST
   const [showQR, setShowQR] = useState(false); // QR code for attendance signing during WARM UP
   const [appVersion, setAppVersion] = useState('');
+  const [currentTrackName, setCurrentTrackName] = useState('');
 
   // Check if we should show domo video on mount (only if class just started)
   useEffect(() => {
@@ -186,6 +187,8 @@ const Routine: React.FC = () => {
   const fadeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const forceNextTrackRef = useRef<boolean>(false); // Flag to force immediate track switch
   const minTrackIndexRef = useRef<number>(0); // Minimum track index - prevents going backwards after force-switch
+  const playInProgressRef = useRef<boolean>(false); // Guard against concurrent play() calls
+  const musicCheckIntervalRef = useRef<NodeJS.Timeout | null>(null); // Interval for music track checking
 
   // Crossfade duration in ms
   const CROSSFADE_MS = 3000;
@@ -558,6 +561,8 @@ const Routine: React.FC = () => {
   // Clean up music on unmount
   useEffect(() => {
     return () => {
+      // Stop music check interval
+      if (musicCheckIntervalRef.current) { clearInterval(musicCheckIntervalRef.current); musicCheckIntervalRef.current = null; }
       // Stop crossfade
       if (fadeIntervalRef.current) { clearInterval(fadeIntervalRef.current); fadeIntervalRef.current = null; }
       if (fadingOutAudioRef.current) { fadingOutAudioRef.current.pause(); fadingOutAudioRef.current.src = ''; fadingOutAudioRef.current = null; }
@@ -570,6 +575,7 @@ const Routine: React.FC = () => {
       currentMusicIndexRef.current = -1;
       musicInitializedRef.current = false;
       minTrackIndexRef.current = 0;
+      playInProgressRef.current = false;
     };
   }, []);
 
@@ -646,8 +652,11 @@ const Routine: React.FC = () => {
   }, [currentExerciseIndex, currentBlockData]);
 
   // Helper: get the audio URL from a music track (s3_url or audio_url)
+  // Validates that the URL is actually a valid HTTP URL (not "Download error" etc.)
   const getTrackUrl = useCallback((track: MusicTrack): string | undefined => {
-    return track.s3_url || track.audio_url;
+    const url = track.s3_url || track.audio_url;
+    if (!url || !url.startsWith('http')) return undefined;
+    return url;
   }, []);
 
   // Helper: convert volume from API scale (0-100) to AudioEngine scale (0-1)
@@ -679,36 +688,30 @@ const Routine: React.FC = () => {
     console.log(`Volume adjusted: intensity=${intensityLevel}, multiplier=${multiplier}, volume=${newVolume.toFixed(2)}`);
   }, [intensityLevel, musicPlaylist, normalizeVolume, getVolumeMultiplier]);
 
-  // Music player - sync tracks with class elapsed time using music_playlist duration_sum
-  // Runs every second (via classTimeRemaining) to ensure music starts and switches tracks
-  useEffect(() => {
+  // Music player - uses a stable interval instead of useEffect deps to avoid rapid re-entry
+  // The checkAndPlayMusic function is called every 2 seconds by setInterval
+  const checkAndPlayMusic = useCallback(() => {
     if (!currentRoutine || musicPlaylist.length === 0) return;
 
     // Don't start music until we've checked if domo should play
-    if (!domoChecked) {
-      console.log('Music: Waiting for domo check...');
-      return;
-    }
+    if (!domoChecked) return;
 
     // Don't start music while domo video is playing
-    if (showDomoVideo && !domoVideoEnded) {
-      console.log('Music: Waiting for domo video to finish...');
-      return;
-    }
+    if (showDomoVideo && !domoVideoEnded) return;
+
+    // Guard: don't re-enter while a play() is in progress
+    if (playInProgressRef.current) return;
 
     const timeFrom = currentRoutine.time_from;
     const now = Date.now();
     const timeElapsedMs = now - timeFrom;
 
-    if (timeElapsedMs < 0) {
-      console.log('Music: Class not started yet, timeElapsedMs:', timeElapsedMs);
-      return;
-    }
+    if (timeElapsedMs < 0) return;
 
     // Check if we need to force switch to next track (song ended early)
     const forceNext = forceNextTrackRef.current;
     if (forceNext) {
-      forceNextTrackRef.current = false; // Reset the flag
+      forceNextTrackRef.current = false;
     }
 
     // Find current track based on music_playlist duration_sum (cumulative end time)
@@ -729,7 +732,7 @@ const Routine: React.FC = () => {
       const nextIndex = currentMusicIndexRef.current + 1;
       if (nextIndex < musicPlaylist.length) {
         targetTrackIndex = nextIndex;
-        minTrackIndexRef.current = nextIndex; // Prevent going backwards
+        minTrackIndexRef.current = nextIndex;
         console.log('Music: Force switching to next track', targetTrackIndex, '(song ended early), minIndex now:', nextIndex);
       }
     }
@@ -741,7 +744,6 @@ const Routine: React.FC = () => {
 
     // Safety: if targetTrackIndex is beyond playlist, reset to last valid track
     if (targetTrackIndex >= musicPlaylist.length) {
-      console.log('Music: SAFETY - targetTrackIndex beyond playlist, resetting to last track');
       targetTrackIndex = musicPlaylist.length - 1;
       minTrackIndexRef.current = targetTrackIndex;
     }
@@ -751,7 +753,6 @@ const Routine: React.FC = () => {
 
     // Skip tracks with 0 duration or no URL, find next valid track
     while ((!trackUrl || track.duration === 0) && targetTrackIndex < musicPlaylist.length - 1) {
-      console.log(`Music: Skipping invalid track ${targetTrackIndex}, finding next valid...`);
       targetTrackIndex++;
       track = musicPlaylist[targetTrackIndex];
       trackUrl = getTrackUrl(track);
@@ -759,7 +760,6 @@ const Routine: React.FC = () => {
 
     if (!trackUrl) {
       // LAST RESORT: Find ANY track with a valid URL from the beginning
-      console.log('Music: SAFETY - No valid URL found, searching entire playlist...');
       for (let i = 0; i < musicPlaylist.length; i++) {
         const fallbackTrack = musicPlaylist[i];
         const fallbackUrl = getTrackUrl(fallbackTrack);
@@ -767,41 +767,32 @@ const Routine: React.FC = () => {
           targetTrackIndex = i;
           track = fallbackTrack;
           trackUrl = fallbackUrl;
-          minTrackIndexRef.current = 0; // Reset min index since we're going back
-          console.log(`Music: SAFETY - Found fallback track ${i}: ${track.song_name}`);
+          minTrackIndexRef.current = 0;
           break;
         }
       }
     }
 
-    if (!trackUrl) {
-      console.log('Music: ERROR - No playable tracks in entire playlist!');
-      return;
-    }
+    if (!trackUrl) return;
 
     const needsPlay = targetTrackIndex !== currentMusicIndexRef.current ||
       !musicInitializedRef.current ||
       forceNext;
 
-    if (!needsPlay) return; // Already playing the right track
+    if (!needsPlay) return;
 
-    // If the next track is the same song as the current one, just change volume — don't restart
+    // If the next track is the same song as the current one, just change volume
     const prevTrackIndex = currentMusicIndexRef.current;
     if (
       prevTrackIndex >= 0 &&
       targetTrackIndex !== prevTrackIndex &&
       musicPlaylist[targetTrackIndex]?.song_id === musicPlaylist[prevTrackIndex]?.song_id &&
-      musicAudioRef.current && !musicAudioRef.current.paused &&
+      musicAudioRef.current &&
       !forceNext
     ) {
       const volume = normalizeVolume(track.volume);
       const multiplier = getVolumeMultiplier(intensityLevel);
       const adjustedVolume = volume * multiplier;
-
-      console.log(
-        `Music: Same song "${track.song_name}" (index ${prevTrackIndex} → ${targetTrackIndex}), only changing volume to ${adjustedVolume}`
-      );
-
       if (musicAudioRef.current) {
         musicAudioRef.current.volume = adjustedVolume;
       }
@@ -817,19 +808,14 @@ const Routine: React.FC = () => {
     const songStartOffset = track.song_millisecond_start || 0;
     let seekPosition = songStartOffset + timeIntoTrack;
 
-    // Check if seek position exceeds track duration - if so, adjust or skip
+    // Check if seek position exceeds track duration - if so, skip
     const trackDuration = track.duration || 0;
     if (trackDuration > 0 && seekPosition >= trackDuration) {
-      console.log(`Music: Seek position ${seekPosition}ms exceeds track duration ${trackDuration}ms`);
-      // Try to skip to next track
       if (targetTrackIndex < musicPlaylist.length - 1) {
         minTrackIndexRef.current = targetTrackIndex + 1;
         forceNextTrackRef.current = true;
-        setMusicTrigger(prev => prev + 1);
-        return;
+        return; // Will be picked up on next interval tick
       } else {
-        // Last track - just play from the song start offset instead of skipping
-        console.log('Music: Last track, playing from song start offset instead');
         seekPosition = songStartOffset;
       }
     }
@@ -842,6 +828,7 @@ const Routine: React.FC = () => {
     currentMusicIndexRef.current = targetTrackIndex;
     musicInitializedRef.current = true;
     musicPlayingRef.current = true;
+    setCurrentTrackName(`${track.song_name} - ${track.main_artist}`);
 
     console.log(
       `Music: ${isNewTrack ? 'Switching to' : 'Initial sync'} track ${targetTrackIndex}` +
@@ -851,58 +838,78 @@ const Routine: React.FC = () => {
       ` (playlist: ${track.playlist_name})`
     );
 
-    // Clear any ongoing fade interval
-    if (fadeIntervalRef.current) {
-      clearInterval(fadeIntervalRef.current);
-      fadeIntervalRef.current = null;
+    // Clean up old audio
+    const oldAudio = musicAudioRef.current;
+    if (oldAudio) {
+      oldAudio.onended = null;
+      oldAudio.pause();
+      oldAudio.src = '';
     }
 
-    // Kill any previously fading-out audio (from an earlier crossfade)
-    if (fadingOutAudioRef.current) {
-      fadingOutAudioRef.current.pause();
-      fadingOutAudioRef.current.src = '';
-      fadingOutAudioRef.current = null;
-    }
-
-    // Stop any ongoing crossfade
-    if (fadingOutAudioRef.current) {
-      fadingOutAudioRef.current.pause();
-      fadingOutAudioRef.current.src = '';
-      fadingOutAudioRef.current = null;
-    }
-
-    // Reuse existing Audio element or create one (only once)
-    let audio = musicAudioRef.current;
-    if (!audio) {
-      audio = new Audio();
-      // Listen for track ending - switch to next track
-      audio.addEventListener('ended', () => {
-        console.log('Music: Track ended naturally, forcing switch to next track');
-        forceNextTrackRef.current = true;
-        setMusicTrigger(prev => prev + 1);
-      });
-      // Listen for errors - switch to next track
-      audio.addEventListener('error', (e) => {
-        console.error('Music: Track failed to load, switching to next track', e);
-        forceNextTrackRef.current = true;
-        setMusicTrigger(prev => prev + 1);
-      });
-      musicAudioRef.current = audio;
-    }
-
-    // Switch track: stop current, load new source
-    audio.pause();
-    audio.src = trackUrl;
+    // Create and play new audio
+    const audio = new Audio(trackUrl);
     audio.currentTime = seekPosition / 1000;
     audio.volume = adjustedVolume;
+    musicAudioRef.current = audio;
+
+    audio.onended = () => {
+      console.log('Music: Track ended naturally, forcing switch to next track');
+      if (musicAudioRef.current === audio) {
+        forceNextTrackRef.current = true;
+      }
+    };
+
+    // Set play-in-progress guard to prevent re-entry
+    playInProgressRef.current = true;
     audio.play().then(() => {
       console.log('Music: playing successfully');
+      playInProgressRef.current = false;
     }).catch((err: unknown) => {
       console.error('Music: play() FAILED:', err);
+      playInProgressRef.current = false;
+      setCurrentTrackName(`FAILED: ${track.song_name}`);
     });
-  }, [currentExerciseIndex, classTimeRemaining, currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, normalizeVolume, getVolumeMultiplier, musicTrigger, domoChecked, showDomoVideo, domoVideoEnded]);
+  }, [currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, normalizeVolume, getVolumeMultiplier, domoChecked, showDomoVideo, domoVideoEnded]);
 
-  // Preload next music track using HTML5 Audio in renderer
+  // Start the music check interval - runs every 2 seconds instead of every render
+  useEffect(() => {
+    // Run immediately on mount/dep change
+    checkAndPlayMusic();
+
+    // Then check every 2 seconds
+    musicCheckIntervalRef.current = setInterval(checkAndPlayMusic, 2000);
+
+    return () => {
+      if (musicCheckIntervalRef.current) {
+        clearInterval(musicCheckIntervalRef.current);
+        musicCheckIntervalRef.current = null;
+      }
+    };
+  }, [checkAndPlayMusic]);
+
+  // Manual play button handler - force retry current track
+  const handleManualPlay = useCallback(() => {
+    if (musicAudioRef.current) {
+      // Try to resume existing audio
+      musicAudioRef.current.play().then(() => {
+        console.log('Music: Manual play - resumed successfully');
+        setCurrentTrackName(prev => prev.replace('FAILED: ', ''));
+      }).catch((err) => {
+        console.error('Music: Manual play failed, retrying with new Audio:', err);
+        // Force re-initialize
+        musicInitializedRef.current = false;
+        playInProgressRef.current = false;
+        checkAndPlayMusic();
+      });
+    } else {
+      // No audio element, force re-initialize
+      musicInitializedRef.current = false;
+      playInProgressRef.current = false;
+      checkAndPlayMusic();
+    }
+  }, [checkAndPlayMusic]);
+
+  // Preload next music track using fetch to warm the browser cache
   useEffect(() => {
     if (musicPlaylist.length === 0) return;
     const nextTrackIndex = currentMusicIndexRef.current + 1;
@@ -910,10 +917,7 @@ const Routine: React.FC = () => {
       const nextTrack = musicPlaylist[nextTrackIndex];
       const nextUrl = nextTrack?.s3_url || nextTrack?.audio_url;
       if (nextUrl) {
-        const preloadAudio = new Audio();
-        preloadAudio.preload = 'auto';
-        preloadAudio.src = nextUrl;
-        // The browser will start buffering; we don't need to keep a reference
+        fetch(nextUrl, { method: 'HEAD' }).catch(() => {});
       }
     }
   }, [currentExerciseIndex, musicPlaylist]);

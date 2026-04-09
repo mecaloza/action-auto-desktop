@@ -46,6 +46,11 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // Dev tools - only in development
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
+  }
+
   // Initialize managers
   mqttManager = new MqttManager();
   audioEngine = new AudioEngine();

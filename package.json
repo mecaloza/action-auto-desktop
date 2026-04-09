@@ -1,6 +1,6 @@
 {
   "name": "action-auto-desktop",
-  "version": "1.1.6",
+  "version": "1.1.8",
   "description": "Fitness Class Control Desktop Application",
   "author": "Action Fitness",
   "main": "dist/main/index.js",

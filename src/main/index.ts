@@ -117,11 +117,11 @@ app.whenReady().then(() => {
     console.error('Auto-updater error:', err);
   });
 
-  // Check for updates on startup and every 30 minutes
+  // Check for updates on startup and every 2 minutes
   autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
   setInterval(() => {
     autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
-  }, 30 * 60 * 1000);
+  }, 2 * 60 * 1000);
 
   // IPC handler: force install update
   ipcMain.handle('app:installUpdate', () => {

@@ -58,7 +58,7 @@ const Routine: React.FC = () => {
   const [showNextBlockText, setShowNextBlockText] = useState(false); // "NEXT BLOCK" text overlay for Tonic/Solido REST
   const [showQR, setShowQR] = useState(false); // QR code for attendance signing during WARM UP
   const [appVersion, setAppVersion] = useState('');
-  const [currentTrackName, setCurrentTrackName] = useState('');
+  const [updateAvailable, setUpdateAvailable] = useState(false);
 
   // Check if we should show domo video on mount (only if class just started)
   useEffect(() => {
@@ -579,9 +579,13 @@ const Routine: React.FC = () => {
     };
   }, []);
 
-  // Fetch app version on mount
+  // Fetch app version and listen for updates
   useEffect(() => {
     window.electron.app.getVersion().then(setAppVersion);
+    const removeListener = window.electron.app.onUpdateDownloaded(() => {
+      setUpdateAvailable(true);
+    });
+    return removeListener;
   }, []);
 
   // Unlock audio context on mount - required for Windows Electron autoplay
@@ -688,31 +692,14 @@ const Routine: React.FC = () => {
     console.log(`Volume adjusted: intensity=${intensityLevel}, multiplier=${multiplier}, volume=${newVolume.toFixed(2)}`);
   }, [intensityLevel, musicPlaylist, normalizeVolume, getVolumeMultiplier]);
 
-  // Music player - uses a stable interval instead of useEffect deps to avoid rapid re-entry
-  // The checkAndPlayMusic function is called every 2 seconds by setInterval
-  const checkAndPlayMusic = useCallback(() => {
+  // Music player - find the right track for the current time and play it
+  const playTrackForCurrentTime = useCallback((forceNext: boolean) => {
     if (!currentRoutine || musicPlaylist.length === 0) return;
-
-    // Don't start music until we've checked if domo should play
-    if (!domoChecked) return;
-
-    // Don't start music while domo video is playing
-    if (showDomoVideo && !domoVideoEnded) return;
-
-    // Guard: don't re-enter while a play() is in progress
-    if (playInProgressRef.current) return;
+    if (!domoChecked || (showDomoVideo && !domoVideoEnded)) return;
 
     const timeFrom = currentRoutine.time_from;
-    const now = Date.now();
-    const timeElapsedMs = now - timeFrom;
-
+    const timeElapsedMs = Date.now() - timeFrom;
     if (timeElapsedMs < 0) return;
-
-    // Check if we need to force switch to next track (song ended early)
-    const forceNext = forceNextTrackRef.current;
-    if (forceNext) {
-      forceNextTrackRef.current = false;
-    }
 
     // Find current track based on music_playlist duration_sum (cumulative end time)
     let targetTrackIndex = 0;
@@ -727,22 +714,20 @@ const Routine: React.FC = () => {
       }
     }
 
-    // If force next, jump to the next track and update minimum index
+    // If force next, jump to the next track
     if (forceNext && currentMusicIndexRef.current >= 0) {
       const nextIndex = currentMusicIndexRef.current + 1;
       if (nextIndex < musicPlaylist.length) {
         targetTrackIndex = nextIndex;
         minTrackIndexRef.current = nextIndex;
-        console.log('Music: Force switching to next track', targetTrackIndex, '(song ended early), minIndex now:', nextIndex);
+        console.log('Music: Force next track', targetTrackIndex);
       }
     }
 
-    // Never go below the minimum track index (prevents loop after force-switch)
+    // Never go below the minimum track index
     if (targetTrackIndex < minTrackIndexRef.current) {
       targetTrackIndex = minTrackIndexRef.current;
     }
-
-    // Safety: if targetTrackIndex is beyond playlist, reset to last valid track
     if (targetTrackIndex >= musicPlaylist.length) {
       targetTrackIndex = musicPlaylist.length - 1;
       minTrackIndexRef.current = targetTrackIndex;
@@ -751,37 +736,36 @@ const Routine: React.FC = () => {
     let track = musicPlaylist[targetTrackIndex];
     let trackUrl = getTrackUrl(track);
 
-    // Skip tracks with 0 duration or no URL, find next valid track
+    // Skip tracks with no valid URL or 0 duration
     while ((!trackUrl || track.duration === 0) && targetTrackIndex < musicPlaylist.length - 1) {
       targetTrackIndex++;
       track = musicPlaylist[targetTrackIndex];
       trackUrl = getTrackUrl(track);
     }
 
+    // Last resort: find ANY valid track
     if (!trackUrl) {
-      // LAST RESORT: Find ANY track with a valid URL from the beginning
       for (let i = 0; i < musicPlaylist.length; i++) {
-        const fallbackTrack = musicPlaylist[i];
-        const fallbackUrl = getTrackUrl(fallbackTrack);
-        if (fallbackUrl && (fallbackTrack.duration || 0) > 0) {
+        const fb = musicPlaylist[i];
+        const fbUrl = getTrackUrl(fb);
+        if (fbUrl && (fb.duration || 0) > 0) {
           targetTrackIndex = i;
-          track = fallbackTrack;
-          trackUrl = fallbackUrl;
+          track = fb;
+          trackUrl = fbUrl;
           minTrackIndexRef.current = 0;
           break;
         }
       }
     }
-
     if (!trackUrl) return;
 
+    // Check if we actually need to play a new track
     const needsPlay = targetTrackIndex !== currentMusicIndexRef.current ||
       !musicInitializedRef.current ||
       forceNext;
-
     if (!needsPlay) return;
 
-    // If the next track is the same song as the current one, just change volume
+    // Same song different index? Just adjust volume
     const prevTrackIndex = currentMusicIndexRef.current;
     if (
       prevTrackIndex >= 0 &&
@@ -790,76 +774,76 @@ const Routine: React.FC = () => {
       musicAudioRef.current &&
       !forceNext
     ) {
-      const volume = normalizeVolume(track.volume);
-      const multiplier = getVolumeMultiplier(intensityLevel);
-      const adjustedVolume = volume * multiplier;
-      if (musicAudioRef.current) {
-        musicAudioRef.current.volume = adjustedVolume;
-      }
+      const adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
+      musicAudioRef.current.volume = adjustedVolume;
       currentMusicIndexRef.current = targetTrackIndex;
       return;
     }
 
-    // When forcing next track, start from the beginning (song_millisecond_start only)
+    // Calculate seek position
     const prevTrackEnd = targetTrackIndex > 0
-      ? (musicPlaylist[targetTrackIndex - 1]?.duration_sum || 0)
-      : 0;
+      ? (musicPlaylist[targetTrackIndex - 1]?.duration_sum || 0) : 0;
     const timeIntoTrack = forceNext ? 0 : Math.max(0, timeElapsedMs - prevTrackEnd);
     const songStartOffset = track.song_millisecond_start || 0;
     let seekPosition = songStartOffset + timeIntoTrack;
 
-    // Check if seek position exceeds track duration - if so, skip
     const trackDuration = track.duration || 0;
     if (trackDuration > 0 && seekPosition >= trackDuration) {
       if (targetTrackIndex < musicPlaylist.length - 1) {
         minTrackIndexRef.current = targetTrackIndex + 1;
         forceNextTrackRef.current = true;
-        return; // Will be picked up on next interval tick
+        return;
       } else {
         seekPosition = songStartOffset;
       }
     }
 
-    const volume = normalizeVolume(track.volume);
-    const multiplier = getVolumeMultiplier(intensityLevel);
-    const adjustedVolume = volume * multiplier;
-
-    const isNewTrack = targetTrackIndex !== currentMusicIndexRef.current;
-    currentMusicIndexRef.current = targetTrackIndex;
-    musicInitializedRef.current = true;
-    musicPlayingRef.current = true;
-    setCurrentTrackName(`${track.song_name} - ${track.main_artist}`);
+    const adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
 
     console.log(
-      `Music: ${isNewTrack ? 'Switching to' : 'Initial sync'} track ${targetTrackIndex}` +
+      `Music: Playing track ${targetTrackIndex}` +
       ` "${track.song_name}" by ${track.main_artist}` +
       ` url: ${trackUrl}` +
-      ` from ${seekPosition}ms, volume: ${adjustedVolume}` +
-      ` (playlist: ${track.playlist_name})`
+      ` from ${seekPosition}ms, volume: ${adjustedVolume.toFixed(2)}`
     );
 
-    // Clean up old audio
+    // Clean up old audio completely
     const oldAudio = musicAudioRef.current;
     if (oldAudio) {
       oldAudio.onended = null;
+      oldAudio.onerror = null;
       oldAudio.pause();
       oldAudio.src = '';
     }
 
-    // Create and play new audio
+    // Create new audio element
     const audio = new Audio(trackUrl);
     audio.currentTime = seekPosition / 1000;
     audio.volume = adjustedVolume;
     musicAudioRef.current = audio;
+    currentMusicIndexRef.current = targetTrackIndex;
+    musicInitializedRef.current = true;
+    musicPlayingRef.current = true;
 
+    // When track ends naturally, force next
     audio.onended = () => {
-      console.log('Music: Track ended naturally, forcing switch to next track');
+      console.log('Music: Track ended, switching to next');
       if (musicAudioRef.current === audio) {
         forceNextTrackRef.current = true;
       }
     };
 
-    // Set play-in-progress guard to prevent re-entry
+    // When track fails to load, force next
+    audio.onerror = () => {
+      console.error('Music: Track failed to load, skipping to next');
+      if (musicAudioRef.current === audio) {
+        minTrackIndexRef.current = targetTrackIndex + 1;
+        forceNextTrackRef.current = true;
+        musicInitializedRef.current = false;
+      }
+    };
+
+    // Play with guard
     playInProgressRef.current = true;
     audio.play().then(() => {
       console.log('Music: playing successfully');
@@ -867,47 +851,82 @@ const Routine: React.FC = () => {
     }).catch((err: unknown) => {
       console.error('Music: play() FAILED:', err);
       playInProgressRef.current = false;
-      setCurrentTrackName(`FAILED: ${track.song_name}`);
     });
   }, [currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, normalizeVolume, getVolumeMultiplier, domoChecked, showDomoVideo, domoVideoEnded]);
 
-  // Start the music check interval - runs every 2 seconds instead of every render
+  // Music check interval - runs every 2 seconds, detects stalls and triggers track changes
   useEffect(() => {
-    // Run immediately on mount/dep change
-    checkAndPlayMusic();
+    const checkMusic = () => {
+      // Safety: reset playInProgress if stuck for more than 10 seconds
+      if (playInProgressRef.current) {
+        return; // Let it finish, but the timeout below will unstick it
+      }
 
-    // Then check every 2 seconds
-    musicCheckIntervalRef.current = setInterval(checkAndPlayMusic, 2000);
+      // Check if forceNext flag is set (track ended or errored)
+      if (forceNextTrackRef.current) {
+        forceNextTrackRef.current = false;
+        playTrackForCurrentTime(true);
+        return;
+      }
+
+      // STALL DETECTION: if we should be playing but audio is paused/ended, restart
+      if (musicInitializedRef.current && musicAudioRef.current) {
+        const audio = musicAudioRef.current;
+        const isPaused = audio.paused;
+        const isEnded = audio.ended;
+        const hasError = audio.error !== null;
+
+        if (isPaused || isEnded || hasError) {
+          console.log(`Music: STALL detected - paused:${isPaused} ended:${isEnded} error:${hasError}, restarting...`);
+          musicInitializedRef.current = false;
+          if (isEnded || hasError) {
+            // Move to next track
+            minTrackIndexRef.current = currentMusicIndexRef.current + 1;
+          }
+          playTrackForCurrentTime(isEnded || hasError);
+          return;
+        }
+      }
+
+      // Normal check: start music if not yet initialized
+      if (!musicInitializedRef.current) {
+        playTrackForCurrentTime(false);
+        return;
+      }
+
+      // Check if we need to switch tracks based on time
+      if (currentRoutine) {
+        const timeElapsedMs = Date.now() - currentRoutine.time_from;
+        const currentTrackEnd = musicPlaylist[currentMusicIndexRef.current]?.duration_sum || 0;
+        if (timeElapsedMs >= currentTrackEnd && currentMusicIndexRef.current < musicPlaylist.length - 1) {
+          console.log('Music: Time-based track switch needed');
+          playTrackForCurrentTime(false);
+        }
+      }
+    };
+
+    // Run immediately
+    playTrackForCurrentTime(false);
+
+    // Check every 2 seconds
+    musicCheckIntervalRef.current = setInterval(checkMusic, 2000);
+
+    // Safety: reset playInProgress guard after 10 seconds max (prevents permanent stuck)
+    const unstickInterval = setInterval(() => {
+      if (playInProgressRef.current) {
+        console.log('Music: Resetting stuck playInProgress guard');
+        playInProgressRef.current = false;
+      }
+    }, 10000);
 
     return () => {
       if (musicCheckIntervalRef.current) {
         clearInterval(musicCheckIntervalRef.current);
         musicCheckIntervalRef.current = null;
       }
+      clearInterval(unstickInterval);
     };
-  }, [checkAndPlayMusic]);
-
-  // Manual play button handler - force retry current track
-  const handleManualPlay = useCallback(() => {
-    if (musicAudioRef.current) {
-      // Try to resume existing audio
-      musicAudioRef.current.play().then(() => {
-        console.log('Music: Manual play - resumed successfully');
-        setCurrentTrackName(prev => prev.replace('FAILED: ', ''));
-      }).catch((err) => {
-        console.error('Music: Manual play failed, retrying with new Audio:', err);
-        // Force re-initialize
-        musicInitializedRef.current = false;
-        playInProgressRef.current = false;
-        checkAndPlayMusic();
-      });
-    } else {
-      // No audio element, force re-initialize
-      musicInitializedRef.current = false;
-      playInProgressRef.current = false;
-      checkAndPlayMusic();
-    }
-  }, [checkAndPlayMusic]);
+  }, [playTrackForCurrentTime, currentRoutine, musicPlaylist]);
 
   // Preload next music track using fetch to warm the browser cache
   useEffect(() => {
@@ -1622,6 +1641,19 @@ const Routine: React.FC = () => {
           >
             Logout
           </button>
+          {updateAvailable && (
+            <button
+              className={styles.contextMenuItem}
+              style={{ color: '#4caf50', fontWeight: 'bold' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowContextMenu(false);
+                window.electron.app.installUpdate();
+              }}
+            >
+              Update Available — Install Now
+            </button>
+          )}
         </div>
       )}
 

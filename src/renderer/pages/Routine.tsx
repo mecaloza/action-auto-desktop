@@ -966,9 +966,8 @@ const Routine: React.FC = () => {
         if (i === classInfo.length - 1) currentIdx = classInfo.length - 1;
       }
 
-      // Skip beeps during warmup, stretching, rest, or last exercise
-      const currentZone = classInfo[currentIdx]?.zone || classInfo[currentIdx]?.exercises?.[0]?.zone || '';
-      if (currentZone === 'WARM UP' || currentZone === 'STRETCHING' || currentZone === 'REST' || currentIdx >= classInfo.length - 1) {
+      // Skip beeps only on the very last exercise (no next exercise to transition to)
+      if (currentIdx >= classInfo.length - 1) {
         if (lastBeepTimeRef.current !== -1) lastBeepTimeRef.current = -1;
         return;
       }
@@ -995,9 +994,10 @@ const Routine: React.FC = () => {
         return;
       }
 
-      // Normal beep: play at 4, 3, 2, 1 seconds (like original action-auto)
-      if (secondsLeft <= 4 && secondsLeft >= 1 && secondsLeft !== lastBeepTimeRef.current) {
+      // Normal beep: play at 4, 3, 2, 1, 0 seconds (like original action-auto: timeExcersice <= 4)
+      if (secondsLeft <= 4 && secondsLeft >= 0 && secondsLeft !== lastBeepTimeRef.current) {
         lastBeepTimeRef.current = secondsLeft;
+        console.log(`Beep: secondsLeft=${secondsLeft}, idx=${currentIdx}, zone=${classInfo[currentIdx]?.zone}`);
         // Create fresh Audio each time (like original) for maximum reliability
         const beep = new Audio(beepUrl);
         beep.volume = volume;

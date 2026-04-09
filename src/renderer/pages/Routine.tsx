@@ -189,6 +189,7 @@ const Routine: React.FC = () => {
   const minTrackIndexRef = useRef<number>(0); // Minimum track index - prevents going backwards after force-switch
   const playInProgressRef = useRef<boolean>(false); // Guard against concurrent play() calls
   const musicCheckIntervalRef = useRef<NodeJS.Timeout | null>(null); // Interval for music track checking
+  const musicStartTimeRef = useRef<number>(0); // Timestamp when music first started playing
 
   // Crossfade duration in ms
   const CROSSFADE_MS = 3000;
@@ -300,7 +301,7 @@ const Routine: React.FC = () => {
     // For Tonic/Solido: ACTIVE PAUSE should have normal volume, not rest volume
     if (isRegularRest) return 'rest';
     if (isActivePause) return 'normal'; // ACTIVE PAUSE keeps normal volume
-    if (isWarmup || isStretching) return 'low';
+    if (isWarmup) return 'low';
 
     const exercise1Name = exercise1?.exercise_name?.toUpperCase() || '';
     const exercise2Name = exercise2?.exercise_name?.toUpperCase() || '';
@@ -682,15 +683,45 @@ const Routine: React.FC = () => {
   }, []);
 
   // Volume adjustment based on intensity - uses track volume with intensity multiplier
+  // Also handles initial 20-second ramp-up after music starts
   useEffect(() => {
     if (!musicAudioRef.current) return;
     const currentTrack = musicPlaylist[currentMusicIndexRef.current];
     const baseVolume = normalizeVolume(currentTrack?.volume);
     const multiplier = getVolumeMultiplier(intensityLevel);
-    const newVolume = baseVolume * multiplier;
+    let newVolume = baseVolume * multiplier;
+
+    // Lower volume during first 20 seconds
+    if (musicStartTimeRef.current > 0) {
+      const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
+      if (secondsSinceMusicStart < 20) {
+        newVolume *= 0.3;
+      }
+    }
+
     musicAudioRef.current.volume = newVolume;
     console.log(`Volume adjusted: intensity=${intensityLevel}, multiplier=${multiplier}, volume=${newVolume.toFixed(2)}`);
   }, [intensityLevel, musicPlaylist, normalizeVolume, getVolumeMultiplier]);
+
+  // After 20 seconds of music playing, ramp volume back up to normal
+  useEffect(() => {
+    if (musicStartTimeRef.current === 0) return;
+    const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
+    if (secondsSinceMusicStart >= 20) return; // Already past the initial period
+
+    const remainingMs = (20 - secondsSinceMusicStart) * 1000;
+    const rampUpTimer = setTimeout(() => {
+      if (musicAudioRef.current && musicPlaylist.length > 0) {
+        const currentTrack = musicPlaylist[currentMusicIndexRef.current];
+        const baseVolume = normalizeVolume(currentTrack?.volume);
+        const multiplier = getVolumeMultiplier(intensityLevel);
+        musicAudioRef.current.volume = baseVolume * multiplier;
+        console.log('Music: 20s passed, volume ramped up to normal');
+      }
+    }, remainingMs);
+
+    return () => clearTimeout(rampUpTimer);
+  }, [musicPlaylist, intensityLevel, normalizeVolume, getVolumeMultiplier]);
 
   // Music player - find the right track for the current time and play it
   const playTrackForCurrentTime = useCallback((forceNext: boolean) => {
@@ -798,7 +829,17 @@ const Routine: React.FC = () => {
       }
     }
 
-    const adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
+    let adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
+
+    // Lower volume for first 20 seconds after music starts (domo video transition)
+    if (musicStartTimeRef.current === 0) {
+      musicStartTimeRef.current = Date.now();
+    }
+    const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
+    if (secondsSinceMusicStart < 20) {
+      adjustedVolume *= 0.3; // 30% volume for first 20 seconds
+      console.log(`Music: Initial low volume (${secondsSinceMusicStart.toFixed(0)}s since start)`);
+    }
 
     console.log(
       `Music: Playing track ${targetTrackIndex}` +

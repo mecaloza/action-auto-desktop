@@ -941,67 +941,81 @@ const Routine: React.FC = () => {
     }
   }, [currentExerciseIndex, musicPlaylist]);
 
-  // Play beep sound at 3, 2, 1, 0 seconds before exercise change
+  // Play beep sound at 4, 3, 2, 1 seconds before exercise change (like original action-auto)
+  // Uses fresh Audio() each time for reliability - same approach as original project
   // For Jab: play boxing bell when next exercise is KNOCKOUT or FREE
   useEffect(() => {
-    // Skip beeps during warmup, stretching, rest, or last exercise
-    if (isWarmup || isStretching || isRest || currentExerciseIndex >= classInfo.length - 1) {
-      return;
-    }
+    if (!currentRoutine || classInfo.length === 0) return;
 
-    // Check if next exercise is KNOCKOUT or FREE (for Jab boxing bell)
-    const nextExerciseName = classInfo[currentExerciseIndex + 1]?.exercises?.[0]?.exercise_name;
-    const isNextKnockoutOrFree = isJab && (nextExerciseName === 'KNOCKOUT' || nextExerciseName === 'FREE');
+    const beepUrl = `${selectedCDN}/audios/beep.mp3`;
+    const volume = clubName === 'Alcala' || clubName === 'OrtegayGasset' || clubName === 'Ventas' ? 0.4 : 0.8;
 
-    // For Jab KNOCKOUT/FREE: play boxing bell at 0 seconds only
-    if (isNextKnockoutOrFree) {
-      if (exerciseTimer <= 0 && lastBeepTimeRef.current !== 0) {
-        lastBeepTimeRef.current = 0;
-        if (bellAudioRef.current) {
-          bellAudioRef.current.volume = 0.5;
-          bellAudioRef.current.currentTime = 0;
-          bellAudioRef.current.play().then(() => {
-            console.log('Boxing bell played for KNOCKOUT/FREE transition');
-          }).catch((err) => {
-            console.log('Boxing bell failed to play:', err);
-          });
+    const beepInterval = setInterval(() => {
+      // Calculate exercise time remaining from real time (not React state)
+      const timeElapsedMs = Date.now() - currentRoutine.time_from;
+      if (timeElapsedMs < 0) return;
+
+      // Find current exercise index
+      let currentIdx = 0;
+      for (let i = 0; i < classInfo.length; i++) {
+        const blockEndTime = classInfo[i].duration_sum || 0;
+        if (timeElapsedMs < blockEndTime) {
+          currentIdx = i;
+          break;
         }
+        if (i === classInfo.length - 1) currentIdx = classInfo.length - 1;
       }
-      // Reset lastBeepTime when timer goes above 3 (new exercise started)
-      if (exerciseTimer > 3) {
-        lastBeepTimeRef.current = -1;
+
+      // Skip beeps during warmup, stretching, rest, or last exercise
+      const currentZone = classInfo[currentIdx]?.zone || classInfo[currentIdx]?.exercises?.[0]?.zone || '';
+      if (currentZone === 'WARM UP' || currentZone === 'STRETCHING' || currentZone === 'REST' || currentIdx >= classInfo.length - 1) {
+        if (lastBeepTimeRef.current !== -1) lastBeepTimeRef.current = -1;
+        return;
       }
-      return; // Skip normal beeps for KNOCKOUT/FREE transitions
-    }
 
-    // Normal beep logic: play beep when timer is 3 or less, but only once per second value
-    if (exerciseTimer <= 3 && exerciseTimer >= 0 && exerciseTimer !== lastBeepTimeRef.current) {
-      lastBeepTimeRef.current = exerciseTimer;
+      const blockEndTime = classInfo[currentIdx]?.duration_sum || 0;
+      const exerciseTimeRemainingMs = blockEndTime - timeElapsedMs;
+      const secondsLeft = Math.floor(exerciseTimeRemainingMs / 1000);
 
-      const volume = clubName === 'Alcala' || clubName === 'OrtegayGasset' || clubName === 'Ventas' ? 0.2 : 0.5;
+      // Check for Jab KNOCKOUT/FREE bell
+      const nextExName = classInfo[currentIdx + 1]?.exercises?.[0]?.exercise_name;
+      const isJabRoom = (currentRoutine?.type?.toUpperCase() === 'JAB') || (roomName?.toLowerCase() || '').includes('jab');
+      const isNextKnockoutOrFree = isJabRoom && (nextExName === 'KNOCKOUT' || nextExName === 'FREE');
 
-      // Use preloaded beep element - always reuse, never create new
-      if (beepAudioRef.current) {
-        beepAudioRef.current.volume = volume;
-        beepAudioRef.current.currentTime = 0;
-        beepAudioRef.current.play().then(() => {
-          console.log('Beep played at', exerciseTimer, 'seconds for exercise index:', currentExerciseIndex);
-        }).catch((err) => {
-          console.log('Beep failed:', err);
-          // Retry: reload the same element and play again
-          if (beepAudioRef.current) {
-            beepAudioRef.current.load();
-            beepAudioRef.current.play().catch(() => {});
+      if (isNextKnockoutOrFree) {
+        if (secondsLeft <= 0 && lastBeepTimeRef.current !== 0) {
+          lastBeepTimeRef.current = 0;
+          if (bellAudioRef.current) {
+            bellAudioRef.current.volume = 0.8;
+            bellAudioRef.current.currentTime = 0;
+            bellAudioRef.current.play().catch(() => {});
           }
+        }
+        if (secondsLeft > 4) lastBeepTimeRef.current = -1;
+        return;
+      }
+
+      // Normal beep: play at 4, 3, 2, 1 seconds (like original action-auto)
+      if (secondsLeft <= 4 && secondsLeft >= 1 && secondsLeft !== lastBeepTimeRef.current) {
+        lastBeepTimeRef.current = secondsLeft;
+        // Create fresh Audio each time (like original) for maximum reliability
+        const beep = new Audio(beepUrl);
+        beep.volume = volume;
+        beep.play().then(() => {
+          console.log('Beep played at', secondsLeft, 'seconds, exercise:', currentIdx);
+        }).catch((err) => {
+          console.log('Beep failed at', secondsLeft, ':', err);
         });
       }
-    }
 
-    // Reset lastBeepTime when timer goes above 3 (new exercise started)
-    if (exerciseTimer > 3) {
-      lastBeepTimeRef.current = -1;
-    }
-  }, [exerciseTimer, currentExerciseIndex, isWarmup, isStretching, isRest, isJab, classInfo, selectedCDN, clubName]);
+      // Reset when timer goes above 4 (new exercise)
+      if (secondsLeft > 4) {
+        lastBeepTimeRef.current = -1;
+      }
+    }, 500); // Check every 500ms so we never miss a second
+
+    return () => clearInterval(beepInterval);
+  }, [currentRoutine, classInfo, selectedCDN, clubName, roomName]);
 
   if (!currentRoutine) {
     return (

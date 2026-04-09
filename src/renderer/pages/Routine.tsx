@@ -1641,6 +1641,17 @@ const Routine: React.FC = () => {
           >
             Logout
           </button>
+          <button
+            className={styles.contextMenuItem}
+            style={{ color: '#ff4444' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowContextMenu(false);
+              window.electron.app.quit();
+            }}
+          >
+            Quit App
+          </button>
           {updateAvailable && (
             <button
               className={styles.contextMenuItem}

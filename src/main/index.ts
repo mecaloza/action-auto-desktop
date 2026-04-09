@@ -129,6 +129,12 @@ app.whenReady().then(() => {
     autoUpdater.quitAndInstall();
   });
 
+  // IPC handler: quit app
+  ipcMain.handle('app:quit', () => {
+    isQuitting = true;
+    app.quit();
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();

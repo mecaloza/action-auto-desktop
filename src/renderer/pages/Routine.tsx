@@ -848,39 +848,99 @@ const Routine: React.FC = () => {
       ` from ${seekPosition}ms, volume: ${adjustedVolume.toFixed(2)}`
     );
 
-    // Clean up old audio completely
+    // Crossfade: fade out old audio while fading in new audio
     const oldAudio = musicAudioRef.current;
-    if (oldAudio) {
-      oldAudio.onended = null;
-      oldAudio.onerror = null;
-      oldAudio.pause();
-      oldAudio.src = '';
+
+    // Clean up any previous fade that's still running
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+    }
+    if (fadingOutAudioRef.current) {
+      fadingOutAudioRef.current.pause();
+      fadingOutAudioRef.current.src = '';
+      fadingOutAudioRef.current = null;
     }
 
     // Create new audio element
     const audio = new Audio(trackUrl);
     audio.currentTime = seekPosition / 1000;
-    audio.volume = adjustedVolume;
     musicAudioRef.current = audio;
+
+    // If there's an old audio playing, crossfade
+    if (oldAudio && !oldAudio.paused && !oldAudio.ended) {
+      oldAudio.onended = null;
+      oldAudio.onerror = null;
+      fadingOutAudioRef.current = oldAudio;
+
+      // Start new track at low volume, ramp up
+      audio.volume = 0;
+      const fadeStepMs = CROSSFADE_MS / FADE_STEPS;
+      let step = 0;
+
+      fadeIntervalRef.current = setInterval(() => {
+        step++;
+        const progress = step / FADE_STEPS;
+
+        // Fade out old
+        if (fadingOutAudioRef.current) {
+          fadingOutAudioRef.current.volume = Math.max(0, (1 - progress) * adjustedVolume);
+        }
+        // Fade in new
+        if (musicAudioRef.current === audio) {
+          audio.volume = progress * adjustedVolume;
+        }
+
+        // Done fading
+        if (step >= FADE_STEPS) {
+          if (fadeIntervalRef.current) {
+            clearInterval(fadeIntervalRef.current);
+            fadeIntervalRef.current = null;
+          }
+          if (fadingOutAudioRef.current) {
+            fadingOutAudioRef.current.pause();
+            fadingOutAudioRef.current.src = '';
+            fadingOutAudioRef.current = null;
+          }
+          if (musicAudioRef.current === audio) {
+            audio.volume = adjustedVolume;
+          }
+          console.log('Music: Crossfade complete');
+        }
+      }, fadeStepMs);
+    } else {
+      // No old audio or it's already stopped — just set volume directly
+      if (oldAudio) {
+        oldAudio.onended = null;
+        oldAudio.onerror = null;
+        oldAudio.pause();
+        oldAudio.src = '';
+      }
+      audio.volume = adjustedVolume;
+    }
     currentMusicIndexRef.current = targetTrackIndex;
     musicInitializedRef.current = true;
     musicPlayingRef.current = true;
 
-    // When track ends naturally, force next
+    // When track ends naturally, IMMEDIATELY play next (no waiting for interval)
     audio.onended = () => {
-      console.log('Music: Track ended, switching to next');
+      console.log('Music: Track ended, immediately playing next');
       if (musicAudioRef.current === audio) {
-        forceNextTrackRef.current = true;
+        musicInitializedRef.current = false;
+        minTrackIndexRef.current = Math.max(minTrackIndexRef.current, targetTrackIndex + 1);
+        // Call playTrackForCurrentTime directly for zero-gap transition
+        setTimeout(() => playTrackForCurrentTime(true), 50);
       }
     };
 
-    // When track fails to load, force next
+    // When track fails to load, IMMEDIATELY skip to next
     audio.onerror = () => {
-      console.error('Music: Track failed to load, skipping to next');
+      console.error('Music: Track failed to load, immediately skipping');
       if (musicAudioRef.current === audio) {
         minTrackIndexRef.current = targetTrackIndex + 1;
-        forceNextTrackRef.current = true;
         musicInitializedRef.current = false;
+        playInProgressRef.current = false;
+        setTimeout(() => playTrackForCurrentTime(true), 50);
       }
     };
 
@@ -911,7 +971,8 @@ const Routine: React.FC = () => {
       }
 
       // STALL DETECTION: if we should be playing but audio is paused/ended, restart
-      if (musicInitializedRef.current && musicAudioRef.current) {
+      // Skip during crossfade (fadeIntervalRef is active)
+      if (musicInitializedRef.current && musicAudioRef.current && !fadeIntervalRef.current) {
         const audio = musicAudioRef.current;
         const isPaused = audio.paused;
         const isEnded = audio.ended;
@@ -949,16 +1010,16 @@ const Routine: React.FC = () => {
     // Run immediately
     playTrackForCurrentTime(false);
 
-    // Check every 2 seconds
-    musicCheckIntervalRef.current = setInterval(checkMusic, 2000);
+    // Check every 1 second (reduced from 2s to minimize silent gaps)
+    musicCheckIntervalRef.current = setInterval(checkMusic, 1000);
 
-    // Safety: reset playInProgress guard after 10 seconds max (prevents permanent stuck)
+    // Safety: reset playInProgress guard after 5 seconds max (prevents permanent stuck)
     const unstickInterval = setInterval(() => {
       if (playInProgressRef.current) {
         console.log('Music: Resetting stuck playInProgress guard');
         playInProgressRef.current = false;
       }
-    }, 10000);
+    }, 5000);
 
     return () => {
       if (musicCheckIntervalRef.current) {

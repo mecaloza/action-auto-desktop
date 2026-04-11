@@ -456,11 +456,10 @@ const Routine: React.FC = () => {
     const targetZone = classInfo[targetExerciseIndex]?.zone || classInfo[targetExerciseIndex]?.exercises?.[0]?.zone;
     const nextZone = classInfo[targetExerciseIndex + 1]?.zone || classInfo[targetExerciseIndex + 1]?.exercises?.[0]?.zone;
 
-    const canShowPreview = targetExerciseIndex < classInfo.length - 1 &&
-      targetZone !== 'REST' &&
-      targetZone !== 'WARM UP' &&
-      targetZone !== 'STRETCHING' &&
-      nextZone !== 'REST';
+    // Show preview like original action-auto: only skip when next is REST with 60s duration
+    const nextDuration = classInfo[targetExerciseIndex + 1]?.duration || 0;
+    const isNextRestWith60s = nextZone === 'REST' && nextDuration === 60000;
+    const canShowPreview = targetExerciseIndex < classInfo.length - 1 && !isNextRestWith60s;
 
     // Show "following exercise" GIF between 6-4 seconds
     if (exerciseTimeRemainingSec <= 6 && exerciseTimeRemainingSec > 4 && canShowPreview) {
@@ -674,11 +673,11 @@ const Routine: React.FC = () => {
   // Get volume multiplier based on intensity level
   const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     switch (intensity) {
-      case 'rest': return 0.25; // Very low during rest (25%)
-      case 'low': return 0.5;   // Low during warmup/stretching (50%)
-      case 'normal': return 0.85; // Normal intensity (85%)
-      case 'high': return 1.0;  // Maximum during intense moments (100%)
-      default: return 0.85;
+      case 'rest': return 0.25;
+      case 'low': return 0.45;
+      case 'normal': return 0.75;
+      case 'high': return 0.85;
+      default: return 0.75;
     }
   }, []);
 
@@ -766,26 +765,31 @@ const Routine: React.FC = () => {
 
     let track = musicPlaylist[targetTrackIndex];
     let trackUrl = getTrackUrl(track);
+    let isFallbackTrack = false;
 
-    // Skip tracks with no valid URL or 0 duration
-    while ((!trackUrl || track.duration === 0) && targetTrackIndex < musicPlaylist.length - 1) {
-      targetTrackIndex++;
-      track = musicPlaylist[targetTrackIndex];
-      trackUrl = getTrackUrl(track);
-    }
+    // If target track has bad URL, pick a RANDOM valid track to fill the gap
+    if (!trackUrl || track.duration === 0) {
+      console.log(`Music: Track ${targetTrackIndex} "${track.song_name}" has bad URL, finding random fallback`);
 
-    // Last resort: find ANY valid track
-    if (!trackUrl) {
+      // Collect all valid tracks
+      const validTracks: { index: number; track: MusicTrack; url: string }[] = [];
       for (let i = 0; i < musicPlaylist.length; i++) {
-        const fb = musicPlaylist[i];
-        const fbUrl = getTrackUrl(fb);
-        if (fbUrl && (fb.duration || 0) > 0) {
-          targetTrackIndex = i;
-          track = fb;
-          trackUrl = fbUrl;
-          minTrackIndexRef.current = 0;
-          break;
+        const t = musicPlaylist[i];
+        const u = getTrackUrl(t);
+        if (u && (t.duration || 0) > 0) {
+          validTracks.push({ index: i, track: t, url: u });
         }
+      }
+
+      if (validTracks.length > 0) {
+        // Pick a random valid track (avoid repeating the current one if possible)
+        let candidates = validTracks.filter(v => v.index !== currentMusicIndexRef.current);
+        if (candidates.length === 0) candidates = validTracks;
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        track = pick.track;
+        trackUrl = pick.url;
+        isFallbackTrack = true;
+        console.log(`Music: Random fallback → track ${pick.index} "${track.song_name}"`);
       }
     }
     if (!trackUrl) return;
@@ -812,20 +816,27 @@ const Routine: React.FC = () => {
     }
 
     // Calculate seek position
-    const prevTrackEnd = targetTrackIndex > 0
-      ? (musicPlaylist[targetTrackIndex - 1]?.duration_sum || 0) : 0;
-    const timeIntoTrack = forceNext ? 0 : Math.max(0, timeElapsedMs - prevTrackEnd);
-    const songStartOffset = track.song_millisecond_start || 0;
-    let seekPosition = songStartOffset + timeIntoTrack;
+    let seekPosition: number;
+    if (isFallbackTrack || forceNext) {
+      // Fallback tracks and forced-next always start from beginning
+      seekPosition = track.song_millisecond_start || 0;
+    } else {
+      const prevTrackEnd = targetTrackIndex > 0
+        ? (musicPlaylist[targetTrackIndex - 1]?.duration_sum || 0) : 0;
+      const timeIntoTrack = Math.max(0, timeElapsedMs - prevTrackEnd);
+      const songStartOffset = track.song_millisecond_start || 0;
+      seekPosition = songStartOffset + timeIntoTrack;
 
-    const trackDuration = track.duration || 0;
-    if (trackDuration > 0 && seekPosition >= trackDuration) {
-      if (targetTrackIndex < musicPlaylist.length - 1) {
-        minTrackIndexRef.current = targetTrackIndex + 1;
-        forceNextTrackRef.current = true;
-        return;
-      } else {
-        seekPosition = songStartOffset;
+      const trackDuration = track.duration || 0;
+      const trackEndInFile = songStartOffset + trackDuration;
+      if (trackDuration > 0 && seekPosition >= trackEndInFile) {
+        if (targetTrackIndex < musicPlaylist.length - 1) {
+          minTrackIndexRef.current = targetTrackIndex + 1;
+          forceNextTrackRef.current = true;
+          return;
+        } else {
+          seekPosition = songStartOffset;
+        }
       }
     }
 

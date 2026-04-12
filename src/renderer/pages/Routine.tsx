@@ -329,7 +329,12 @@ const Routine: React.FC = () => {
       return 'normal'; // BASIC
     }
 
-    // Other rooms (Tonic, Solid, etc.)
+    // Tonic/Solido rooms: exercises at high volume
+    if (roomLower.includes('tonic') || roomLower.includes('solid')) {
+      return 'high';
+    }
+
+    // Other rooms
     return 'normal';
   };
 
@@ -673,10 +678,10 @@ const Routine: React.FC = () => {
   // Get volume multiplier based on intensity level
   const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     switch (intensity) {
-      case 'rest': return 0.25;
-      case 'low': return 0.45;
-      case 'normal': return 0.75;
-      case 'high': return 0.85;
+      case 'rest': return 0.35;
+      case 'low': return 0.50;
+      case 'normal': return 0.80;
+      case 'high': return 0.90;
       default: return 0.75;
     }
   }, []);

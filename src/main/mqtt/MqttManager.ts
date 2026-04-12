@@ -54,6 +54,14 @@ export class MqttManager {
   private automaticModeInterval: NodeJS.Timeout | null = null;
   private useAwsIot: boolean = false; // V8 clubs use AWS IoT, V3 clubs use Shiftr.io
 
+  // Normalize room name for MQTT topics (matches rutineV8.js getCleanRoomName)
+  // Solido shares Tonic's IoT devices, so topics must use "tonic"
+  private getCleanRoomType(room: string): string {
+    const raw = room.toLowerCase().split('/')[0].trim();
+    if (raw.includes('solido') || raw.includes('solid')) return 'tonic';
+    return raw;
+  }
+
   // Check if club should use AWS IoT (V8) or Shiftr.io (V3)
   private isV8Club(clubName: string): boolean {
     const normalizedClub = clubName.toLowerCase().replace(/\s+/g, '');
@@ -63,7 +71,7 @@ export class MqttManager {
   async connect(club: string, room: string): Promise<void> {
     this.club = club;
     this.room = room;
-    this.roomType = room.toLowerCase().split('/')[0]; // Handle room types like "Savage/Jab"
+    this.roomType = this.getCleanRoomType(room); // Normalize room name for MQTT topics
     this.useAwsIot = this.isV8Club(club);
 
     console.log(`MQTT Manager: Club "${club}" will use ${this.useAwsIot ? 'AWS IoT (V8)' : 'Shiftr.io (V3)'}`);
@@ -235,7 +243,10 @@ export class MqttManager {
       this.sendLightSequenceToAws(sequence);
     } else {
       // V3 clubs: Publish to Shiftr.io (legacy simple format)
-      const shiftrTopic = `${this.club}/${this.room}`;
+      // Use roomType (which maps Solido→tonic) to match original rutineV3.js behavior
+      const shiftrRoom = this.room.toLowerCase().includes('solido') || this.room.toLowerCase().includes('solid')
+        ? 'Tonic' : this.room;
+      const shiftrTopic = `${this.club}/${shiftrRoom}`;
       console.log(`MQTT: Publishing light sequence ${sequence} to Shiftr.io topic: ${shiftrTopic}`);
       this.shiftrClient?.publish(shiftrTopic, sequence.toString(), { qos: 0, retain: true });
     }
@@ -264,8 +275,7 @@ export class MqttManager {
       case 'savage':
         this.applySavageSequence(sequence);
         break;
-      case 'tonic':
-      case 'solido':
+      case 'tonic': // Also covers Solido (mapped in getCleanRoomType)
         this.applyTonicSequence(sequence);
         break;
       case 'jab':
@@ -389,8 +399,10 @@ export class MqttManager {
     if (this.useAwsIot) {
       this.publishToAws(loadType, controlValue);
     } else {
-      // For Shiftr.io, we use a simpler topic structure
-      const topic = `${this.club}/${this.room}/${loadType}`;
+      // For Shiftr.io, use simpler topic structure (Solido→Tonic mapping)
+      const shiftrRoom = this.room.toLowerCase().includes('solido') || this.room.toLowerCase().includes('solid')
+        ? 'Tonic' : this.room;
+      const topic = `${this.club}/${shiftrRoom}/${loadType}`;
       this.shiftrClient?.publish(topic, controlValue.toString(), { qos: 0 });
     }
   }
@@ -435,8 +447,10 @@ export class MqttManager {
       setTimeout(() => this.publishToAws('sound', 1), 100);
       setTimeout(() => this.publishToAws('sound', 1), 300);
     } else {
-      // Shiftr.io: Simple sound control
-      const topic = `${this.club}/${this.room}/sound`;
+      // Shiftr.io: Simple sound control (Solido→Tonic topic mapping)
+      const shiftrRoom = this.room.toLowerCase().includes('solido') || this.room.toLowerCase().includes('solid')
+        ? 'Tonic' : this.room;
+      const topic = `${this.club}/${shiftrRoom}/sound`;
       this.shiftrClient?.publish(topic, '1', { qos: 0, retain: true });
     }
   }

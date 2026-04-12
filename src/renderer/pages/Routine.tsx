@@ -675,6 +675,19 @@ const Routine: React.FC = () => {
     return Math.max(0, Math.min(1, apiVolume / 100));
   }, []);
 
+  // Helper: calculate final volume for a track at a given intensity
+  // Enforces minimum base volume during exercise so quiet tracks don't kill volume
+  const calculateVolume = useCallback((trackVolume: number | undefined, intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
+    let baseVolume = normalizeVolume(trackVolume);
+    const multiplier = getVolumeMultiplier(intensity);
+    // During exercise (high/normal), enforce minimum base volume of 0.65
+    // so even quiet tracks (volume=42 → 0.42) play at audible levels
+    if (intensity === 'high' || intensity === 'normal') {
+      baseVolume = Math.max(baseVolume, 0.65);
+    }
+    return baseVolume * multiplier;
+  }, [normalizeVolume, getVolumeMultiplier]);
+
   // Get volume multiplier based on intensity level
   const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     switch (intensity) {
@@ -691,9 +704,7 @@ const Routine: React.FC = () => {
   useEffect(() => {
     if (!musicAudioRef.current) return;
     const currentTrack = musicPlaylist[currentMusicIndexRef.current];
-    const baseVolume = normalizeVolume(currentTrack?.volume);
-    const multiplier = getVolumeMultiplier(intensityLevel);
-    let newVolume = baseVolume * multiplier;
+    let newVolume = calculateVolume(currentTrack?.volume, intensityLevel);
 
     // Lower volume during first 20 seconds
     if (musicStartTimeRef.current > 0) {
@@ -704,8 +715,8 @@ const Routine: React.FC = () => {
     }
 
     musicAudioRef.current.volume = newVolume;
-    console.log(`Volume adjusted: intensity=${intensityLevel}, multiplier=${multiplier}, volume=${newVolume.toFixed(2)}`);
-  }, [intensityLevel, musicPlaylist, normalizeVolume, getVolumeMultiplier]);
+    console.log(`Volume adjusted: intensity=${intensityLevel}, volume=${newVolume.toFixed(2)}`);
+  }, [intensityLevel, musicPlaylist, calculateVolume]);
 
   // After 20 seconds of music playing, ramp volume back up to normal
   useEffect(() => {
@@ -717,15 +728,13 @@ const Routine: React.FC = () => {
     const rampUpTimer = setTimeout(() => {
       if (musicAudioRef.current && musicPlaylist.length > 0) {
         const currentTrack = musicPlaylist[currentMusicIndexRef.current];
-        const baseVolume = normalizeVolume(currentTrack?.volume);
-        const multiplier = getVolumeMultiplier(intensityLevel);
-        musicAudioRef.current.volume = baseVolume * multiplier;
+        musicAudioRef.current.volume = calculateVolume(currentTrack?.volume, intensityLevel);
         console.log('Music: 20s passed, volume ramped up to normal');
       }
     }, remainingMs);
 
     return () => clearTimeout(rampUpTimer);
-  }, [musicPlaylist, intensityLevel, normalizeVolume, getVolumeMultiplier]);
+  }, [musicPlaylist, intensityLevel, calculateVolume]);
 
   // Music player - find the right track for the current time and play it
   const playTrackForCurrentTime = useCallback((forceNext: boolean) => {
@@ -814,7 +823,7 @@ const Routine: React.FC = () => {
       musicAudioRef.current &&
       !forceNext
     ) {
-      const adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
+      const adjustedVolume = calculateVolume(track.volume, intensityLevel);
       musicAudioRef.current.volume = adjustedVolume;
       currentMusicIndexRef.current = targetTrackIndex;
       return;
@@ -845,7 +854,7 @@ const Routine: React.FC = () => {
       }
     }
 
-    let adjustedVolume = normalizeVolume(track.volume) * getVolumeMultiplier(intensityLevel);
+    let adjustedVolume = calculateVolume(track.volume, intensityLevel);
 
     // Lower volume for first 20 seconds after music starts (domo video transition)
     if (musicStartTimeRef.current === 0) {
@@ -969,7 +978,7 @@ const Routine: React.FC = () => {
       console.error('Music: play() FAILED:', err);
       playInProgressRef.current = false;
     });
-  }, [currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, normalizeVolume, getVolumeMultiplier, domoChecked, showDomoVideo, domoVideoEnded]);
+  }, [currentRoutine, musicPlaylist, intensityLevel, getTrackUrl, calculateVolume, domoChecked, showDomoVideo, domoVideoEnded]);
 
   // Music check interval - runs every 2 seconds, detects stalls and triggers track changes
   useEffect(() => {

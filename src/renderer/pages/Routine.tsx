@@ -675,17 +675,21 @@ const Routine: React.FC = () => {
     return Math.max(0, Math.min(1, apiVolume / 100));
   }, []);
 
-  // Helper: calculate final volume for a track at a given intensity
-  // Enforces minimum base volume during exercise so quiet tracks don't kill volume
+  // HARD RULE: exercise = loud, rest = low. No exceptions.
+  // Enforces minimum FINAL volume based on intensity so no track can ever sound quiet during exercise.
   const calculateVolume = useCallback((trackVolume: number | undefined, intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
-    let baseVolume = normalizeVolume(trackVolume);
+    const baseVolume = normalizeVolume(trackVolume);
     const multiplier = getVolumeMultiplier(intensity);
-    // During exercise (high/normal), enforce minimum base volume of 0.65
-    // so even quiet tracks (volume=42 → 0.42) play at audible levels
-    if (intensity === 'high' || intensity === 'normal') {
-      baseVolume = Math.max(baseVolume, 0.65);
+    const rawVolume = baseVolume * multiplier;
+
+    // Minimum final volume floors — regardless of track volume
+    switch (intensity) {
+      case 'high':   return Math.max(rawVolume, 0.75); // Exercise in Tonic/Solido/Savage moment
+      case 'normal': return Math.max(rawVolume, 0.65); // Active pause / standard exercise
+      case 'low':    return Math.max(rawVolume, 0.45); // Warmup
+      case 'rest':   return Math.min(rawVolume, 0.35); // Rest MUST stay low
+      default:       return rawVolume;
     }
-    return baseVolume * multiplier;
   }, [normalizeVolume, getVolumeMultiplier]);
 
   // Get volume multiplier based on intensity level

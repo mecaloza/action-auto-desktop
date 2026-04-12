@@ -1213,6 +1213,61 @@ const Routine: React.FC = () => {
       );
     }
 
+    // Show next exercise preview (4 seconds before switching) - MUST be before isRest
+    // so it overrides Active Pause, REST, etc. (matches original action-auto behavior)
+    if (showNextExercise && nextBlockData) {
+      return (
+        <div
+          className={styles.videosContainer}
+          style={(isJab || isStride) ? { flexDirection: 'row-reverse' } : undefined}
+        >
+          {/* Left video - next exercise preview */}
+          <div className={styles.videoWrapper}>
+            <h2 className={styles.exerciseName}>
+              <div className={styles.nameContainer}>
+                <span>{nextExercise1?.exercise_name || ''}</span>
+              </div>
+            </h2>
+            {nextVideo1Url ? (
+              <VideoContainer
+                name="nextExercise1"
+                video={getLoadBalancedVideoURL(nextVideo1Url, selectedCDN)}
+                height="100%"
+                width="100%"
+              />
+            ) : (
+              <div className={styles.noVideo}>
+                <p>{nextExercise1?.exercise_name || ''}</p>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.dividerLine}></div>
+
+          {/* Right video - next exercise preview */}
+          <div className={styles.videoWrapper}>
+            <h2 className={styles.exerciseName}>
+              <div className={styles.nameContainer}>
+                <span>{nextExercise2?.exercise_name || ''}</span>
+              </div>
+            </h2>
+            {nextVideo2Url ? (
+              <VideoContainer
+                name="nextExercise2"
+                video={getLoadBalancedVideoURL(nextVideo2Url, selectedCDN)}
+                height="100%"
+                width="100%"
+              />
+            ) : nextExercise2?.exercise_name ? (
+              <div className={styles.noVideo}>
+                <p>{nextExercise2.exercise_name}</p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
     // During REST - check if it's ACTIVE PAUSE (Tonic/Solido) or regular REST
     if (isRest) {
       // ACTIVE PAUSE for Tonic/Solido: show exercise video or "ACTIVE PAUSE" text
@@ -1393,60 +1448,6 @@ const Routine: React.FC = () => {
       return (
         <div className={styles.textContainer}>
           <p className={styles.bigText}>REST</p>
-        </div>
-      );
-    }
-
-    // Show next exercise preview (4 seconds before switching)
-    if (showNextExercise && nextBlockData) {
-      return (
-        <div
-          className={styles.videosContainer}
-          style={(isJab || isStride) ? { flexDirection: 'row-reverse' } : undefined}
-        >
-          {/* Left video - next exercise preview */}
-          <div className={styles.videoWrapper}>
-            <h2 className={styles.exerciseName}>
-              <div className={styles.nameContainer}>
-                <span>{nextExercise1?.exercise_name || ''}</span>
-              </div>
-            </h2>
-            {nextVideo1Url ? (
-              <VideoContainer
-                name="nextExercise1"
-                video={getLoadBalancedVideoURL(nextVideo1Url, selectedCDN)}
-                height="100%"
-                width="100%"
-              />
-            ) : (
-              <div className={styles.noVideo}>
-                <p>{nextExercise1?.exercise_name || ''}</p>
-              </div>
-            )}
-          </div>
-
-          <div className={styles.dividerLine}></div>
-
-          {/* Right video - next exercise preview */}
-          <div className={styles.videoWrapper}>
-            <h2 className={styles.exerciseName}>
-              <div className={styles.nameContainer}>
-                <span>{nextExercise2?.exercise_name || ''}</span>
-              </div>
-            </h2>
-            {nextVideo2Url ? (
-              <VideoContainer
-                name="nextExercise2"
-                video={getLoadBalancedVideoURL(nextVideo2Url, selectedCDN)}
-                height="100%"
-                width="100%"
-              />
-            ) : nextExercise2?.exercise_name ? (
-              <div className={styles.noVideo}>
-                <p>{nextExercise2.exercise_name}</p>
-              </div>
-            ) : null}
-          </div>
         </div>
       );
     }

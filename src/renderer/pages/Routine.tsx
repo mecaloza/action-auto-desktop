@@ -675,6 +675,17 @@ const Routine: React.FC = () => {
     return Math.max(0, Math.min(1, apiVolume / 100));
   }, []);
 
+  // Get volume multiplier based on intensity level
+  const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
+    switch (intensity) {
+      case 'rest': return 0.35;
+      case 'low': return 0.50;
+      case 'normal': return 0.80;
+      case 'high': return 0.90;
+      default: return 0.75;
+    }
+  }, []);
+
   // HARD RULE: exercise = loud, rest = low. No exceptions.
   // Enforces minimum FINAL volume based on intensity so no track can ever sound quiet during exercise.
   const calculateVolume = useCallback((trackVolume: number | undefined, intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
@@ -691,17 +702,6 @@ const Routine: React.FC = () => {
       default:       return rawVolume;
     }
   }, [normalizeVolume, getVolumeMultiplier]);
-
-  // Get volume multiplier based on intensity level
-  const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
-    switch (intensity) {
-      case 'rest': return 0.35;
-      case 'low': return 0.50;
-      case 'normal': return 0.80;
-      case 'high': return 0.90;
-      default: return 0.75;
-    }
-  }, []);
 
   // Volume adjustment based on intensity - uses track volume with intensity multiplier
   // Also handles initial 20-second ramp-up after music starts

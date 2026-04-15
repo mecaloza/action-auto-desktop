@@ -1,19 +1,19 @@
 .container_timer {
   display: flex;
-  align-items: center;
   justify-content: center;
   font-family: "DINCondensed", "Arial Narrow", sans-serif;
   font-style: normal;
   font-weight: 400;
   line-height: normal;
   color: #808080;
-  font-size: 14.954vh;
-  gap: 0.5vw;
+  font-size: 13.5vh;
+  width: 72%;
 
   & > div {
+    width: 23%;
+    text-align: center;
     display: flex;
-    align-items: center;
     justify-content: center;
-    min-width: 4vw;
+    font-size: 14.954vh;
   }
 }

@@ -189,7 +189,6 @@ const Routine: React.FC = () => {
   const minTrackIndexRef = useRef<number>(0); // Minimum track index - prevents going backwards after force-switch
   const playInProgressRef = useRef<boolean>(false); // Guard against concurrent play() calls
   const musicCheckIntervalRef = useRef<NodeJS.Timeout | null>(null); // Interval for music track checking
-  const musicStartTimeRef = useRef<number>(0); // Timestamp when music first started playing
 
   // Crossfade duration in ms
   const CROSSFADE_MS = 3000;
@@ -330,12 +329,7 @@ const Routine: React.FC = () => {
       return 'normal'; // BASIC
     }
 
-    // Tonic/Solido rooms: exercises at high volume
-    if (roomLower.includes('tonic') || roomLower.includes('solid')) {
-      return 'high';
-    }
-
-    // Other rooms
+    // Tonic/Solido and other rooms: normal volume (matching original action-auto)
     return 'normal';
   };
 
@@ -674,32 +668,29 @@ const Routine: React.FC = () => {
     return Math.max(0, Math.min(1, apiVolume / 100));
   }, []);
 
-  // Get volume multiplier based on intensity level
+  // Get volume multiplier based on intensity level (matching original action-auto)
   const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     switch (intensity) {
-      case 'rest': return 0.35;
-      case 'low': return 0.50;
-      case 'normal': return 0.80;
-      case 'high': return 0.90;
-      default: return 0.75;
+      case 'rest': return 0.25;    // 25% during REST (original: 0.25)
+      case 'low': return 0.50;     // 50% during WARM UP/STRETCHING
+      case 'normal': return 0.85;  // 85% during exercise (original: 0.85)
+      case 'high': return 1.0;     // 100% for high-intensity moments (original: 1.0)
+      default: return 0.85;
     }
   }, []);
 
-  // HARD RULE: exercise = loud, rest = low. No exceptions.
-  // Enforces minimum FINAL volume based on intensity so no track can ever sound quiet during exercise.
+  // Volume calculation matching original action-auto: baseVolume * multiplier
+  // REST has a ceiling to ensure it stays quiet. Exercise uses natural track volume.
   const calculateVolume = useCallback((trackVolume: number | undefined, intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     const baseVolume = normalizeVolume(trackVolume);
     const multiplier = getVolumeMultiplier(intensity);
     const rawVolume = baseVolume * multiplier;
 
-    // Minimum final volume floors — regardless of track volume
-    switch (intensity) {
-      case 'high':   return Math.max(rawVolume, 0.75); // Exercise in Tonic/Solido/Savage moment
-      case 'normal': return Math.max(rawVolume, 0.65); // Active pause / standard exercise
-      case 'low':    return Math.max(rawVolume, 0.45); // Warmup
-      case 'rest':   return Math.min(rawVolume, 0.35); // Rest MUST stay low
-      default:       return rawVolume;
+    // REST ceiling — rest must always stay quiet
+    if (intensity === 'rest') {
+      return Math.min(rawVolume, 0.30);
     }
+    return rawVolume;
   }, [normalizeVolume, getVolumeMultiplier]);
 
   // Volume adjustment based on intensity - uses track volume with intensity multiplier
@@ -707,37 +698,10 @@ const Routine: React.FC = () => {
   useEffect(() => {
     if (!musicAudioRef.current) return;
     const currentTrack = musicPlaylist[currentMusicIndexRef.current];
-    let newVolume = calculateVolume(currentTrack?.volume, intensityLevel);
-
-    // Lower volume during first 20 seconds
-    if (musicStartTimeRef.current > 0) {
-      const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
-      if (secondsSinceMusicStart < 20) {
-        newVolume *= 0.3;
-      }
-    }
-
+    const newVolume = calculateVolume(currentTrack?.volume, intensityLevel);
     musicAudioRef.current.volume = newVolume;
-    console.log(`Volume adjusted: intensity=${intensityLevel}, volume=${newVolume.toFixed(2)}`);
+    console.log(`Volume adjusted: intensity=${intensityLevel}, trackVol=${currentTrack?.volume}, final=${newVolume.toFixed(2)}`);
   }, [intensityLevel, musicPlaylist, calculateVolume]);
-
-  // After 20 seconds of music playing, ramp volume back up to normal
-  useEffect(() => {
-    if (musicStartTimeRef.current === 0) return;
-    const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
-    if (secondsSinceMusicStart >= 20) return; // Already past the initial period
-
-    const remainingMs = (20 - secondsSinceMusicStart) * 1000;
-    const rampUpTimer = setTimeout(() => {
-      if (musicAudioRef.current && musicPlaylist.length > 0) {
-        const currentTrack = musicPlaylist[currentMusicIndexRef.current];
-        musicAudioRef.current.volume = calculateVolume(currentTrack?.volume, intensityLevel);
-        console.log('Music: 20s passed, volume ramped up to normal');
-      }
-    }, remainingMs);
-
-    return () => clearTimeout(rampUpTimer);
-  }, [musicPlaylist, intensityLevel, calculateVolume]);
 
   // Music player - find the right track for the current time and play it
   const playTrackForCurrentTime = useCallback((forceNext: boolean) => {
@@ -857,17 +821,7 @@ const Routine: React.FC = () => {
       }
     }
 
-    let adjustedVolume = calculateVolume(track.volume, intensityLevel);
-
-    // Lower volume for first 20 seconds after music starts (domo video transition)
-    if (musicStartTimeRef.current === 0) {
-      musicStartTimeRef.current = Date.now();
-    }
-    const secondsSinceMusicStart = (Date.now() - musicStartTimeRef.current) / 1000;
-    if (secondsSinceMusicStart < 20) {
-      adjustedVolume *= 0.3; // 30% volume for first 20 seconds
-      console.log(`Music: Initial low volume (${secondsSinceMusicStart.toFixed(0)}s since start)`);
-    }
+    const adjustedVolume = calculateVolume(track.volume, intensityLevel);
 
     console.log(
       `Music: Playing track ${targetTrackIndex}` +

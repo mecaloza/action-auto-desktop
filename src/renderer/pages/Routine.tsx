@@ -1141,31 +1141,8 @@ const Routine: React.FC = () => {
       return <div style={{ height: '61vh' }} />;
     }
 
-    // During warmup or stretching - single video
-    if (isWarmup || isStretching) {
-      return (
-        <div className={styles.warmupContainer}>
-          {video1Url ? (
-            <VideoContainer
-              name="warmup"
-              video={getLoadBalancedVideoURL(video1Url, selectedCDN)}
-              height="100%"
-              width="100%"
-            />
-          ) : (
-            // Show warm_up.mp4 GIF when there's no exercise video
-            <VideoContainer
-              name="warmupGif"
-              video={`${selectedCDN}/text_videos/warm_up.mp4`}
-              height="100%"
-              width="100%"
-            />
-          )}
-        </div>
-      );
-    }
-
-    // Show "following exercise" GIF (6-4 seconds before change) - video area only
+    // Show "following exercise" GIF (6-4 seconds before change) - takes priority over all zones
+    // In original action-auto: gifNextExer/nextExercise override warmup/stretching/rest display
     if (showGifFollowing) {
       return (
         <div className={styles.videoAreaGifOverlay}>
@@ -1230,6 +1207,29 @@ const Routine: React.FC = () => {
               </div>
             ) : null}
           </div>
+        </div>
+      );
+    }
+
+    // During warmup or stretching - single video (after preview checks so preview takes priority)
+    if (isWarmup || isStretching) {
+      return (
+        <div className={styles.warmupContainer}>
+          {video1Url ? (
+            <VideoContainer
+              name="warmup"
+              video={getLoadBalancedVideoURL(video1Url, selectedCDN)}
+              height="100%"
+              width="100%"
+            />
+          ) : (
+            <VideoContainer
+              name="warmupGif"
+              video={`${selectedCDN}/text_videos/warm_up.mp4`}
+              height="100%"
+              width="100%"
+            />
+          )}
         </div>
       );
     }

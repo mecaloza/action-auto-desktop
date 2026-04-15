@@ -302,6 +302,7 @@ const Routine: React.FC = () => {
     if (isRegularRest) return 'rest';
     if (isActivePause) return 'normal'; // ACTIVE PAUSE keeps normal volume
     if (isWarmup) return 'low';
+    if (isStretching) return 'low'; // Stretching = ambient/low volume
 
     const exercise1Name = exercise1?.exercise_name?.toUpperCase() || '';
     const exercise2Name = exercise2?.exercise_name?.toUpperCase() || '';
@@ -551,10 +552,10 @@ const Routine: React.FC = () => {
     // Initial sync
     calculateTimeAndSync();
 
-    // Set up periodic sync every second to keep time accurate
+    // Set up periodic sync every 500ms to keep exercise changes in sync with beeps
     syncIntervalRef.current = setInterval(() => {
       calculateTimeAndSync();
-    }, 1000);
+    }, 500);
 
     return () => {
       if (syncIntervalRef.current) {

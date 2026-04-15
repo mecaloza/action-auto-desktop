@@ -420,6 +420,8 @@ const Routine: React.FC = () => {
       // Set first exercise timer
       const firstExerciseDuration = classInfo[0]?.duration_sum || 30000;
       setExerciseTimer(Math.floor(firstExerciseDuration / 1000));
+      // Show QR before class starts too
+      setShowQR(true);
       return;
     }
 
@@ -505,13 +507,9 @@ const Routine: React.FC = () => {
       nextBlockZone !== 'STRETCHING';
     setShowNextBlockText(shouldShowNextBlockText);
 
-    // Show QR code for attendance during WARM UP phase (first ~7 minutes of class)
-    // QR appears when class has started and we're still in WARM UP zone
-    const targetZoneForQR = classInfo[targetExerciseIndex]?.zone || classInfo[targetExerciseIndex]?.exercises?.[0]?.zone;
-    const isInWarmUp = targetZoneForQR === 'WARM UP';
-    // Also show QR during the first 5 minutes (300s) even if not in WARM UP zone
-    const isWithinFirst5Min = timeElapsedMs > 0 && timeElapsedMs <= 300000;
-    setShowQR(isInWarmUp || isWithinFirst5Min);
+    // Show QR code for attendance during first 10 minutes of class (matching original action-auto)
+    const isWithinFirst10Min = timeElapsedMs >= 0 && timeElapsedMs <= 600000;
+    setShowQR(isWithinFirst10Min);
 
     // Update exercise index if different
     if (targetExerciseIndex !== currentExerciseIndex) {
@@ -1822,8 +1820,11 @@ const Routine: React.FC = () => {
         </div>
       )}
 
-      {/* QR Code for attendance - shows during WARM UP / first 5 minutes */}
-      {showQR && currentRoutine?.type && (
+      {/* QR Code for attendance - shows during first 10 minutes (matching original) */}
+      {/* Excluded: Tribeca, FlatIron, Alcala, OrtegayGasset (Spanish clubs handled inside QRContainer) */}
+      {showQR && currentRoutine?.type &&
+        clubName !== 'Tribeca' && clubName !== 'FlatIron' &&
+        clubName !== 'Alcala' && clubName !== 'OrtegayGasset' && (
         <div className={styles.routineQRContainer}>
           <QRContainer classType={currentRoutine.type} />
         </div>

@@ -33,11 +33,14 @@ const QRContainer: React.FC<QRContainerProps> = ({ classType }) => {
       const type = cleanTypeValue(classType);
 
       if (!token || !clubName || !type) {
-        console.error('Missing required data for QR generation');
+        console.error('QR: Missing required data', { token: !!token, clubName, type, classType });
         setHasError(true);
         setIsLoading(false);
         return;
       }
+
+      console.log(`QR: Fetching branches for club="${clubName}", type="${type}"`);
+
 
       const response = await fetch(`${API_BASE_URL}v1/branches`, {
         method: 'GET',
@@ -85,6 +88,7 @@ const QRContainer: React.FC<QRContainerProps> = ({ classType }) => {
           throw new Error('QR value too short');
         }
 
+        console.log('QR: Generated successfully:', qrValue);
         setFormattedValueQr(qrValue);
         setIsLoading(false);
         retryCountRef.current = 0; // Reset retry count on success

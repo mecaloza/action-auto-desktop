@@ -105,11 +105,16 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.whenReady().then(() => {
   createWindow();
 
-  // Auto-updater setup: download but NEVER auto-install (user must click the button)
+  // Auto-updater setup: download and install automatically
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.on('update-downloaded', () => {
+  autoUpdater.on('update-available', (info) => {
+    console.log('Update available:', info.version);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('Update downloaded:', info.version, '— notifying renderer');
     mainWindow?.webContents.send('update:downloaded');
   });
 

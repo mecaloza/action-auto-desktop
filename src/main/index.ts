@@ -10,6 +10,36 @@ let mqttManager: MqttManager | null = null;
 let audioEngine: AudioEngine | null = null;
 let isQuitting = false;
 
+// Force quit and install update — bypasses all crash recovery
+function forceQuitAndInstall(): void {
+  console.log('forceQuitAndInstall: disabling all recovery, quitting...');
+  isQuitting = true;
+
+  // Disconnect services
+  mqttManager?.disconnect();
+  audioEngine?.stop();
+
+  // Remove all recovery handlers so nothing prevents the quit
+  process.removeAllListeners('uncaughtException');
+  process.removeAllListeners('unhandledRejection');
+
+  // Destroy the window directly to prevent any close handlers from interfering
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.removeAllListeners();
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+
+  // quitAndInstall(isSilent, isForceRunAfter) — silent install, force relaunch
+  autoUpdater.quitAndInstall(true, true);
+
+  // Fallback: if quitAndInstall doesn't kill the process within 5 seconds, force exit
+  setTimeout(() => {
+    console.log('forceQuitAndInstall: fallback app.exit()');
+    app.exit(0);
+  }, 5000);
+}
+
 // Check if we're in development by looking for the vite dev server
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -114,8 +144,13 @@ app.whenReady().then(() => {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('Update downloaded:', info.version, '— notifying renderer');
+    console.log('Update downloaded:', info.version, '— will auto-install');
     mainWindow?.webContents.send('update:downloaded');
+    // Auto quit and install after 5 seconds — no user action needed
+    setTimeout(() => {
+      console.log('Auto-installing update now...');
+      forceQuitAndInstall();
+    }, 5000);
   });
 
   autoUpdater.on('error', (err) => {
@@ -130,8 +165,7 @@ app.whenReady().then(() => {
 
   // IPC handler: force install update
   ipcMain.handle('app:installUpdate', () => {
-    isQuitting = true;
-    autoUpdater.quitAndInstall();
+    forceQuitAndInstall();
   });
 
   // IPC handler: quit app

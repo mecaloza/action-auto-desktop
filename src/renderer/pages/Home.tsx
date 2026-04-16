@@ -310,16 +310,11 @@ const Home: React.FC = () => {
     window.electron.app.getVersion().then(setAppVersion);
   }, []);
 
-  // Listen for update downloaded event — auto-install during countdown
+  // Listen for update downloaded event (main process auto-installs after 5s)
   useEffect(() => {
     const cleanup = window.electron.app.onUpdateDownloaded(() => {
-      console.log('Update downloaded — auto-installing in 3 seconds...');
+      console.log('Update downloaded — main process will auto-install');
       setUpdateAvailable(true);
-      // Auto quit and install after brief delay (allows UI to show update notice)
-      setTimeout(() => {
-        console.log('Auto-installing update now');
-        window.electron.app.installUpdate();
-      }, 3000);
     });
     return cleanup;
   }, []);

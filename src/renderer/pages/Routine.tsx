@@ -694,13 +694,12 @@ const Routine: React.FC = () => {
   }, [normalizeVolume, getVolumeMultiplier]);
 
   // Volume adjustment based on intensity - uses track volume with intensity multiplier
-  // Also handles initial 20-second ramp-up after music starts
   useEffect(() => {
     if (!musicAudioRef.current) return;
     const currentTrack = musicPlaylist[currentMusicIndexRef.current];
     const newVolume = calculateVolume(currentTrack?.volume, intensityLevel);
     musicAudioRef.current.volume = newVolume;
-    console.log(`Volume adjusted: intensity=${intensityLevel}, trackVol=${currentTrack?.volume}, final=${newVolume.toFixed(2)}`);
+    console.log(`Volume: zone=${zone} intensity=${intensityLevel} isRest=${isRest} isRegularRest=${isRegularRest} isActivePause=${isActivePause} trackVol=${currentTrack?.volume} → final=${newVolume.toFixed(3)}`);
   }, [intensityLevel, musicPlaylist, calculateVolume]);
 
   // Music player - find the right track for the current time and play it

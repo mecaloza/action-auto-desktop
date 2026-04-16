@@ -10,34 +10,42 @@ let mqttManager: MqttManager | null = null;
 let audioEngine: AudioEngine | null = null;
 let isQuitting = false;
 
-// Force quit and install update — bypasses all crash recovery
-function forceQuitAndInstall(): void {
-  console.log('forceQuitAndInstall: disabling all recovery, quitting...');
+// Hard kill the app process — bypasses ALL Electron lifecycle, crash recovery, everything
+function forceKill(): void {
+  console.log('forceKill: terminating process');
   isQuitting = true;
-
-  // Disconnect services
   mqttManager?.disconnect();
   audioEngine?.stop();
-
-  // Remove all recovery handlers so nothing prevents the quit
   process.removeAllListeners('uncaughtException');
   process.removeAllListeners('unhandledRejection');
-
-  // Destroy the window directly to prevent any close handlers from interfering
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.removeAllListeners();
     mainWindow.destroy();
     mainWindow = null;
   }
+  // process.exit is the nuclear option — nothing survives this
+  process.exit(0);
+}
 
-  // quitAndInstall(isSilent, isForceRunAfter) — silent install, force relaunch
+// Force quit and install update
+function forceQuitAndInstall(): void {
+  console.log('forceQuitAndInstall: installing update and killing process...');
+  isQuitting = true;
+  mqttManager?.disconnect();
+  audioEngine?.stop();
+  process.removeAllListeners('uncaughtException');
+  process.removeAllListeners('unhandledRejection');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.removeAllListeners();
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+  // Start the installer, then force-kill this process so NSIS can proceed
   autoUpdater.quitAndInstall(true, true);
-
-  // Fallback: if quitAndInstall doesn't kill the process within 5 seconds, force exit
   setTimeout(() => {
-    console.log('forceQuitAndInstall: fallback app.exit()');
-    app.exit(0);
-  }, 5000);
+    console.log('forceQuitAndInstall: force process.exit()');
+    process.exit(0);
+  }, 3000);
 }
 
 // Check if we're in development by looking for the vite dev server
@@ -168,10 +176,9 @@ app.whenReady().then(() => {
     forceQuitAndInstall();
   });
 
-  // IPC handler: quit app
+  // IPC handler: quit app — hard kill so installer/reinstall can proceed
   ipcMain.handle('app:quit', () => {
-    isQuitting = true;
-    app.quit();
+    forceKill();
   });
 
   app.on('activate', () => {

@@ -10,6 +10,11 @@ let mqttManager: MqttManager | null = null;
 let audioEngine: AudioEngine | null = null;
 let isQuitting = false;
 
+// Auto-update gating: updates may only install while NO class is running.
+// Renderer sets this flag when entering/leaving the /routine page.
+let isClassActive = false;
+let pendingUpdateDownloaded = false;
+
 // Hard kill the app process — bypasses ALL Electron lifecycle, crash recovery, everything
 function forceKill(): void {
   console.log('forceKill: terminating process');
@@ -165,37 +170,82 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.whenReady().then(() => {
   createWindow();
 
-  // Auto-updater setup: download and install automatically
+  // Auto-updater setup: download in background; install is GATED on class state.
+  // NEVER install while a class is running — it would kill the class mid-session.
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Disable autoInstallOnAppQuit: we control install timing explicitly so it
+  // can only happen during countdown / idle, never in the middle of a class.
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  // Try to install a downloaded update only when it is safe to do so.
+  // Safe = no class is currently running (renderer is NOT in /routine).
+  function tryInstallPendingUpdate(reason: string): void {
+    if (!pendingUpdateDownloaded) return;
+    if (isClassActive) {
+      console.log(`Update install DEFERRED (${reason}): class is active — will retry when class ends`);
+      return;
+    }
+    console.log(`Update install TRIGGERED (${reason}): no active class, proceeding`);
+    pendingUpdateDownloaded = false;
+    // Small delay so any in-flight renderer work can settle
+    setTimeout(() => {
+      forceQuitAndInstall();
+    }, 2000);
+  }
 
   autoUpdater.on('update-available', (info) => {
     console.log('Update available:', info.version);
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('Update downloaded:', info.version, '— will auto-install');
+    console.log('Update downloaded:', info.version);
+    pendingUpdateDownloaded = true;
     mainWindow?.webContents.send('update:downloaded');
-    // Auto quit and install after 5 seconds — no user action needed
-    setTimeout(() => {
-      console.log('Auto-installing update now...');
-      forceQuitAndInstall();
-    }, 5000);
+    // Install only if no class is running right now
+    tryInstallPendingUpdate('update-downloaded event');
   });
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-updater error:', err);
   });
 
-  // Check for updates on startup and every 2 minutes
+  // Check for updates on startup and every 2 minutes.
+  // Downloading during a class is fine — it's just background bandwidth.
+  // Installing is what's gated.
   autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
   setInterval(() => {
     autoUpdater.checkForUpdates().catch((err) => console.error('Update check failed:', err));
   }, 2 * 60 * 1000);
 
-  // IPC handler: force install update
+  // Periodic check: if an update has been sitting pending, install it as soon
+  // as the class ends. (Primary trigger is setClassActive(false), this is
+  // just a safety net in case the renderer never sends the event.)
+  setInterval(() => {
+    if (pendingUpdateDownloaded && !isClassActive) {
+      tryInstallPendingUpdate('periodic idle check');
+    }
+  }, 30 * 1000);
+
+  // IPC handler: force install update — STILL GATED on class state.
+  // Even if a user clicks "install now", we refuse during an active class.
   ipcMain.handle('app:installUpdate', () => {
+    if (isClassActive) {
+      console.log('app:installUpdate REFUSED: class is active');
+      return;
+    }
     forceQuitAndInstall();
+  });
+
+  // IPC handler: renderer announces whether a class is currently running.
+  // Called on /routine mount (true) and unmount (false).
+  ipcMain.handle('app:setClassActive', (_event, active: boolean) => {
+    const prev = isClassActive;
+    isClassActive = !!active;
+    console.log(`Class active state: ${prev} → ${isClassActive}`);
+    // If a class just ended and there's a pending update, install now.
+    if (prev && !isClassActive) {
+      tryInstallPendingUpdate('class ended');
+    }
   });
 
   // IPC handler: quit app — hard kill so installer/reinstall can proceed

@@ -588,6 +588,17 @@ const Routine: React.FC = () => {
     return removeListener;
   }, []);
 
+  // Announce to main process that a class is running — auto-update must NOT
+  // install while this is true. The flag is cleared when the user leaves this
+  // page (class ended, navigate back to Home). Main will then install any
+  // pending update during the idle/countdown window.
+  useEffect(() => {
+    window.electron.app.setClassActive(true);
+    return () => {
+      window.electron.app.setClassActive(false);
+    };
+  }, []);
+
   // Unlock audio context on mount - required for Windows Electron autoplay
   useEffect(() => {
     const unlockAudio = () => {
@@ -1863,17 +1874,12 @@ const Routine: React.FC = () => {
             Quit App
           </button>
           {updateAvailable && (
-            <button
+            <div
               className={styles.contextMenuItem}
-              style={{ color: '#4caf50', fontWeight: 'bold' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowContextMenu(false);
-                window.electron.app.installUpdate();
-              }}
+              style={{ color: '#888', fontStyle: 'italic', cursor: 'default' }}
             >
-              Update Available — Install Now
-            </button>
+              Update Ready — Installs after class
+            </div>
           )}
         </div>
       )}

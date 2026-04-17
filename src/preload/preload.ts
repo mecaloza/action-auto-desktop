@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('electron', {
     getPlatform: () => process.platform,
     installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
     quit: () => ipcRenderer.invoke('app:quit'),
+    setClassActive: (active: boolean) => ipcRenderer.invoke('app:setClassActive', active),
     onUpdateDownloaded: (cb: () => void) => {
       ipcRenderer.on('update:downloaded', () => cb());
       return () => { ipcRenderer.removeAllListeners('update:downloaded'); };
@@ -95,6 +96,7 @@ declare global {
         getPlatform: () => string;
         installUpdate: () => Promise<void>;
         quit: () => Promise<void>;
+        setClassActive: (active: boolean) => Promise<void>;
         onUpdateDownloaded: (cb: () => void) => () => void;
       };
     };

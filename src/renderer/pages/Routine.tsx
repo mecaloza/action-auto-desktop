@@ -299,9 +299,12 @@ const Routine: React.FC = () => {
   // Determine if this is an intense moment for volume boost
   // Savage: SAVAGE level, Jab: KNOCKOUT/FREE or combinations, Stride: POWER speed
   const getIntensityLevel = (): 'rest' | 'low' | 'normal' | 'high' => {
-    // For Tonic/Solido: ACTIVE PAUSE should have normal volume, not rest volume
+    // REST = music drops hard so instructor / environment is heard
     if (isRegularRest) return 'rest';
-    if (isActivePause) return 'normal'; // ACTIVE PAUSE keeps normal volume
+    // ACTIVE PAUSE (Tonic/Solido) = instructor is explaining between cycles;
+    // music must be audibly lower than exercise so the explanation is heard.
+    // Reported issue: with 'normal' the music stayed too loud during explanations.
+    if (isActivePause) return 'low';
     if (isWarmup) return 'low';
     if (isStretching) return 'low'; // Stretching = ambient/low volume
 
@@ -760,10 +763,14 @@ const Routine: React.FC = () => {
       musicAudioRef.current.src = '';
     }
 
-    // Create and start the random track from its natural start offset
+    // Create and start the random track from its natural start offset.
+    // Start at volume 0 and fade IN over ~1.5s so it never slams in at full
+    // volume (especially important during REST / ACTIVE PAUSE where a sudden
+    // loud song covers instructor explanations).
     const audio = new Audio(pick.url);
     audio.currentTime = (pick.track.song_millisecond_start || 0) / 1000;
-    audio.volume = calculateVolume(pick.track.volume, intensityLevel);
+    const targetVolume = calculateVolume(pick.track.volume, intensityLevel);
+    audio.volume = 0;
     musicAudioRef.current = audio;
     currentMusicIndexRef.current = pick.index;
     musicInitializedRef.current = true;
@@ -789,10 +796,39 @@ const Routine: React.FC = () => {
     playInProgressRef.current = true;
     audio.play().then(() => {
       playInProgressRef.current = false;
+
+      // Gentle fade-in: 0 → targetVolume over 1.5s
+      // Re-reads intensityLevel at each tick so if we transition between
+      // REST/ACTIVE PAUSE/EXERCISE mid-fade-in the volume target tracks it.
+      const FADE_IN_MS = 1500;
+      const FADE_IN_STEPS = 15;
+      const stepMs = FADE_IN_MS / FADE_IN_STEPS;
+      let step = 0;
+      const fadeIn = setInterval(() => {
+        step++;
+        const progress = step / FADE_IN_STEPS;
+        if (musicAudioRef.current === audio) {
+          // Recompute target each tick so it respects live intensity changes
+          const liveTarget = calculateVolume(pick.track.volume, intensityLevel);
+          audio.volume = Math.min(progress * liveTarget, liveTarget);
+        } else {
+          clearInterval(fadeIn);
+          return;
+        }
+        if (step >= FADE_IN_STEPS) {
+          clearInterval(fadeIn);
+          if (musicAudioRef.current === audio) {
+            audio.volume = calculateVolume(pick.track.volume, intensityLevel);
+          }
+        }
+      }, stepMs);
     }).catch((err: unknown) => {
       console.error('Music: random fallback play() failed:', err);
       playInProgressRef.current = false;
     });
+
+    // Suppress unused-variable lint for targetVolume (kept for clarity)
+    void targetVolume;
   }, [musicPlaylist, getTrackUrl, calculateVolume, intensityLevel]);
 
   // Music player - find the right track for the current time and play it

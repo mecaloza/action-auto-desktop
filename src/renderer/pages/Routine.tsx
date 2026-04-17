@@ -822,11 +822,22 @@ const Routine: React.FC = () => {
 
     const adjustedVolume = calculateVolume(track.volume, intensityLevel);
 
+    // Compute the OLD track's target volume so the fadeout uses its own gain,
+    // not the new track's. Fixes the audible "bump" at the start of a crossfade
+    // when the new track has a higher track.volume than the old one.
+    const oldTrack = currentMusicIndexRef.current >= 0
+      ? musicPlaylist[currentMusicIndexRef.current]
+      : undefined;
+    const oldAdjustedVolume = oldTrack
+      ? calculateVolume(oldTrack.volume, intensityLevel)
+      : adjustedVolume;
+
     console.log(
       `Music: Playing track ${targetTrackIndex}` +
       ` "${track.song_name}" by ${track.main_artist}` +
       ` url: ${trackUrl}` +
-      ` from ${seekPosition}ms, volume: ${adjustedVolume.toFixed(2)}`
+      ` from ${seekPosition}ms, volume: ${adjustedVolume.toFixed(2)}` +
+      ` (old track volume: ${oldAdjustedVolume.toFixed(2)})`
     );
 
     // Crossfade: fade out old audio while fading in new audio
@@ -863,11 +874,11 @@ const Routine: React.FC = () => {
         step++;
         const progress = step / FADE_STEPS;
 
-        // Fade out old
+        // Fade out old — uses the OLD track's own gain, not the new one's
         if (fadingOutAudioRef.current) {
-          fadingOutAudioRef.current.volume = Math.max(0, (1 - progress) * adjustedVolume);
+          fadingOutAudioRef.current.volume = Math.max(0, (1 - progress) * oldAdjustedVolume);
         }
-        // Fade in new
+        // Fade in new — uses the new track's gain
         if (musicAudioRef.current === audio) {
           audio.volume = progress * adjustedVolume;
         }

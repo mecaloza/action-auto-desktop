@@ -56,6 +56,21 @@ if (process.argv.some(arg => arg.startsWith('--updated') || arg.startsWith('--un
   isQuitting = true;
 }
 
+// Single instance lock: if the installer (or anything else) launches a second
+// instance, the OLD instance receives 'second-instance' and force-exits so
+// NSIS / the new process can proceed.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  // We are the second instance — exit immediately so the primary can keep running
+  // (or, in the installer case, so NSIS sees no conflict).
+  process.exit(0);
+}
+app.on('second-instance', () => {
+  console.log('second-instance detected — force-exiting old instance for installer');
+  isQuitting = true;
+  process.exit(0);
+});
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1920,
@@ -114,6 +129,13 @@ function createWindow(): void {
   // Prevent the window from being closed accidentally
   mainWindow.on('unresponsive', () => {
     console.error('Window unresponsive, waiting for recovery...');
+  });
+
+  // Any 'close' event = intentional close (user Alt+F4, OS shutdown, NSIS
+  // installer WM_CLOSE). Mark as quitting so window-all-closed won't resurrect.
+  mainWindow.on('close', () => {
+    console.log('window close event — treating as intentional quit');
+    isQuitting = true;
   });
 
   mainWindow.on('closed', () => {
@@ -189,14 +211,11 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (isQuitting) {
-    // Allow normal quit (installer, update, user intentional quit)
-    app.quit();
-  } else if (process.platform !== 'darwin') {
-    // Crash recovery: recreate the window instead of quitting
-    console.error('All windows closed unexpectedly, recreating...');
-    createWindow();
-  }
+  // Always quit when all windows are closed. Crash recovery is handled by
+  // render-process-gone / crashed / uncaughtException (which reload the
+  // renderer without destroying the window). Resurrecting the window here
+  // was blocking legitimate quit signals from the NSIS installer.
+  app.quit();
 });
 
 // Mark as intentional quit so window-all-closed allows it

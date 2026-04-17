@@ -189,6 +189,8 @@ const Routine: React.FC = () => {
   const minTrackIndexRef = useRef<number>(0); // Minimum track index - prevents going backwards after force-switch
   const playInProgressRef = useRef<boolean>(false); // Guard against concurrent play() calls
   const musicCheckIntervalRef = useRef<NodeJS.Timeout | null>(null); // Interval for music track checking
+  const lastKnownCurrentTimeRef = useRef<number>(0); // Last known audio.currentTime — used to detect stuck playback
+  const stallCountRef = useRef<number>(0); // Consecutive stall detections — escalates to random fallback
 
   // Crossfade duration in ms
   const CROSSFADE_MS = 3000;
@@ -702,6 +704,86 @@ const Routine: React.FC = () => {
     console.log(`Volume: zone=${zone} intensity=${intensityLevel} isRest=${isRest} isRegularRest=${isRegularRest} isActivePause=${isActivePause} trackVol=${currentTrack?.volume} → final=${newVolume.toFixed(3)}`);
   }, [intensityLevel, musicPlaylist, calculateVolume]);
 
+  // Emergency fallback: pick a random valid track and play it from the start.
+  // Used when the main track selection logic leaves us with silence (musical void)
+  // that stall detection alone can't recover from (e.g. repeated play() failures,
+  // stuck buffering, or a playlist gap). Guarantees sound instead of dead air.
+  const playRandomValidTrack = useCallback(() => {
+    if (musicPlaylist.length === 0) return;
+
+    // Collect all playlist entries with a usable URL and non-zero duration
+    const validTracks: { index: number; track: MusicTrack; url: string }[] = [];
+    for (let i = 0; i < musicPlaylist.length; i++) {
+      const t = musicPlaylist[i];
+      const u = getTrackUrl(t);
+      if (u && (t.duration || 0) > 0) {
+        validTracks.push({ index: i, track: t, url: u });
+      }
+    }
+    if (validTracks.length === 0) {
+      console.error('Music: WATCHDOG — no valid tracks available to fill void');
+      return;
+    }
+
+    // Prefer a track different from the current one
+    let candidates = validTracks.filter(v => v.index !== currentMusicIndexRef.current);
+    if (candidates.length === 0) candidates = validTracks;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+
+    console.log(`Music: WATCHDOG filling void with random track "${pick.track.song_name}"`);
+
+    // Tear down any in-flight fade / old audio
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+    }
+    if (fadingOutAudioRef.current) {
+      fadingOutAudioRef.current.pause();
+      fadingOutAudioRef.current.src = '';
+      fadingOutAudioRef.current = null;
+    }
+    if (musicAudioRef.current) {
+      musicAudioRef.current.onended = null;
+      musicAudioRef.current.onerror = null;
+      musicAudioRef.current.pause();
+      musicAudioRef.current.src = '';
+    }
+
+    // Create and start the random track from its natural start offset
+    const audio = new Audio(pick.url);
+    audio.currentTime = (pick.track.song_millisecond_start || 0) / 1000;
+    audio.volume = calculateVolume(pick.track.volume, intensityLevel);
+    musicAudioRef.current = audio;
+    currentMusicIndexRef.current = pick.index;
+    musicInitializedRef.current = true;
+    musicPlayingRef.current = true;
+    stallCountRef.current = 0;
+    lastKnownCurrentTimeRef.current = 0;
+
+    audio.onended = () => {
+      if (musicAudioRef.current === audio) {
+        musicInitializedRef.current = false;
+        // Let the normal flow pick the next track naturally
+        forceNextTrackRef.current = true;
+      }
+    };
+    audio.onerror = () => {
+      if (musicAudioRef.current === audio) {
+        // This fallback itself failed — try another random track
+        musicInitializedRef.current = false;
+        setTimeout(() => playRandomValidTrack(), 200);
+      }
+    };
+
+    playInProgressRef.current = true;
+    audio.play().then(() => {
+      playInProgressRef.current = false;
+    }).catch((err: unknown) => {
+      console.error('Music: random fallback play() failed:', err);
+      playInProgressRef.current = false;
+    });
+  }, [musicPlaylist, getTrackUrl, calculateVolume, intensityLevel]);
+
   // Music player - find the right track for the current time and play it
   const playTrackForCurrentTime = useCallback((forceNext: boolean) => {
     if (!currentRoutine || musicPlaylist.length === 0) return;
@@ -962,23 +1044,42 @@ const Routine: React.FC = () => {
         return;
       }
 
-      // STALL DETECTION: if we should be playing but audio is paused/ended, restart
-      // Skip during crossfade (fadeIntervalRef is active)
+      // STALL DETECTION: if we should be playing but audio is paused/ended/stuck, restart.
+      // Skip during crossfade (fadeIntervalRef is active).
       if (musicInitializedRef.current && musicAudioRef.current && !fadeIntervalRef.current) {
         const audio = musicAudioRef.current;
         const isPaused = audio.paused;
         const isEnded = audio.ended;
         const hasError = audio.error !== null;
 
-        if (isPaused || isEnded || hasError) {
-          console.log(`Music: STALL detected - paused:${isPaused} ended:${isEnded} error:${hasError}, restarting...`);
+        // Stuck buffering: not paused/ended/errored, but currentTime hasn't advanced
+        const currentTime = audio.currentTime;
+        const deltaTime = Math.abs(currentTime - lastKnownCurrentTimeRef.current);
+        const isStuck = !isPaused && !isEnded && !hasError && deltaTime < 0.05;
+        lastKnownCurrentTimeRef.current = currentTime;
+
+        if (isPaused || isEnded || hasError || isStuck) {
+          stallCountRef.current++;
+          console.log(`Music: STALL detected (count ${stallCountRef.current}) - paused:${isPaused} ended:${isEnded} error:${hasError} stuck:${isStuck}`);
+
+          // After 3 consecutive failed recoveries, fill the void with a random track.
+          // This is the safety net for "vacío musical" scenarios where normal
+          // track progression can't recover (playlist gap, network, bad track).
+          if (stallCountRef.current >= 3) {
+            stallCountRef.current = 0;
+            playRandomValidTrack();
+            return;
+          }
+
           musicInitializedRef.current = false;
           if (isEnded || hasError) {
-            // Move to next track
             minTrackIndexRef.current = currentMusicIndexRef.current + 1;
           }
           playTrackForCurrentTime(isEnded || hasError);
           return;
+        } else {
+          // Healthy playback — reset stall counter
+          stallCountRef.current = 0;
         }
       }
 
@@ -1020,7 +1121,7 @@ const Routine: React.FC = () => {
       }
       clearInterval(unstickInterval);
     };
-  }, [playTrackForCurrentTime, currentRoutine, musicPlaylist]);
+  }, [playTrackForCurrentTime, playRandomValidTrack, currentRoutine, musicPlaylist]);
 
   // Preload next music track using fetch to warm the browser cache
   useEffect(() => {

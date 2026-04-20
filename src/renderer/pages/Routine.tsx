@@ -282,10 +282,13 @@ const Routine: React.FC = () => {
   const nextVideo1Url = nextExercise1?.video_urls?.[0];
   const nextVideo2Url = nextExercise2?.video_urls?.[0];
 
-  // Determine zone
-  const zone = currentBlockData?.zone || exercise1?.zone || '';
+  // Determine zone — normalized (trim + upper) so trailing spaces or casing
+  // quirks from the API don't break REST detection. Reports indicated rest
+  // wasn't dropping volume; robust normalization closes that door.
+  const rawZone = currentBlockData?.zone || exercise1?.zone || '';
+  const zone = String(rawZone).trim().toUpperCase();
   const isRest = zone === 'REST';
-  const isWarmup = zone === 'WARM UP';
+  const isWarmup = zone === 'WARM UP' || zone === 'WARMUP' || zone === 'WARM-UP';
   const isStretching = zone === 'STRETCHING';
 
   // For Tonic/Solido: ACTIVE PAUSE is when zone is REST but has a cycle (exerciseCycle)
@@ -684,19 +687,20 @@ const Routine: React.FC = () => {
     return Math.max(0, Math.min(1, apiVolume / 100));
   }, []);
 
-  // Get volume multiplier based on intensity level (matching original action-auto)
+  // Volume multipliers — tuned per field feedback from Tonic La 33 / Conecta 26.
+  // Key requirement: there must be an AUDIBLE DROP between exercise and
+  // rest / active-pause / explanations so the instructor can speak over the music.
   const getVolumeMultiplier = useCallback((intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     switch (intensity) {
-      case 'rest': return 0.25;    // 25% during REST (original: 0.25)
-      case 'low': return 0.50;     // 50% during WARM UP/STRETCHING
-      case 'normal': return 0.85;  // 85% during exercise (original: 0.85)
-      case 'high': return 1.0;     // 100% for high-intensity moments (original: 1.0)
-      default: return 0.85;
+      case 'rest': return 0.22;    // hard drop during REST — instructor / ambient audible
+      case 'low': return 0.45;     // WARM UP / STRETCHING / ACTIVE PAUSE
+      case 'normal': return 0.70;  // exercise — lowered from 0.85 (reports: too loud)
+      case 'high': return 0.85;    // intense moments — lowered from 1.0 (keeps headroom, avoids clipping)
+      default: return 0.70;
     }
   }, []);
 
-  // Volume calculation matching original action-auto: baseVolume * multiplier
-  // REST has a ceiling to ensure it stays quiet. Exercise uses natural track volume.
+  // Volume calculation: baseVolume * intensity multiplier, with a hard REST ceiling.
   const calculateVolume = useCallback((trackVolume: number | undefined, intensity: 'rest' | 'low' | 'normal' | 'high'): number => {
     const baseVolume = normalizeVolume(trackVolume);
     const multiplier = getVolumeMultiplier(intensity);
@@ -709,13 +713,57 @@ const Routine: React.FC = () => {
     return rawVolume;
   }, [normalizeVolume, getVolumeMultiplier]);
 
-  // Volume adjustment based on intensity - uses track volume with intensity multiplier
+  // Volume adjustment based on intensity - uses track volume with intensity multiplier.
+  // Applied with a short smoothing ramp (400ms) so transitions between
+  // exercise / rest / active-pause never feel like a sudden jump or drop.
+  // Also kills any in-flight crossfade fade interval that would otherwise
+  // overwrite the new target volume with a stale adjustedVolume.
   useEffect(() => {
-    if (!musicAudioRef.current) return;
+    const audio = musicAudioRef.current;
+    if (!audio) return;
     const currentTrack = musicPlaylist[currentMusicIndexRef.current];
     const newVolume = calculateVolume(currentTrack?.volume, intensityLevel);
-    musicAudioRef.current.volume = newVolume;
-    console.log(`Volume: zone=${zone} intensity=${intensityLevel} isRest=${isRest} isRegularRest=${isRegularRest} isActivePause=${isActivePause} trackVol=${currentTrack?.volume} → final=${newVolume.toFixed(3)}`);
+    const startVolume = audio.volume;
+
+    console.log(
+      `Volume: zone="${zone}" intensity=${intensityLevel} ` +
+      `isRest=${isRest} isRegularRest=${isRegularRest} isActivePause=${isActivePause} ` +
+      `trackVol=${currentTrack?.volume} → from=${startVolume.toFixed(3)} to=${newVolume.toFixed(3)}`
+    );
+
+    // If a crossfade is running, kill it — its captured adjustedVolume is now stale.
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+      if (fadingOutAudioRef.current) {
+        fadingOutAudioRef.current.pause();
+        fadingOutAudioRef.current.src = '';
+        fadingOutAudioRef.current = null;
+      }
+    }
+
+    // Smooth ramp from current to new volume over 400ms (~20 steps)
+    const RAMP_MS = 400;
+    const STEPS = 20;
+    const stepMs = RAMP_MS / STEPS;
+    let step = 0;
+    const delta = newVolume - startVolume;
+    const rampInterval = setInterval(() => {
+      step++;
+      const progress = step / STEPS;
+      if (musicAudioRef.current === audio) {
+        audio.volume = Math.max(0, Math.min(1, startVolume + delta * progress));
+      } else {
+        clearInterval(rampInterval);
+        return;
+      }
+      if (step >= STEPS) {
+        clearInterval(rampInterval);
+        if (musicAudioRef.current === audio) audio.volume = newVolume;
+      }
+    }, stepMs);
+
+    return () => clearInterval(rampInterval);
   }, [intensityLevel, musicPlaylist, calculateVolume]);
 
   // Emergency fallback: pick a random valid track and play it from the start.
